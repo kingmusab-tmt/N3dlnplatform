@@ -26,7 +26,20 @@ cd web && cp .env.example .env.local && npm install && npm run dev
 
 To deploy the schema to a hosted Supabase project, run `supabase link --project-ref <ref>` and then `supabase db push`. Then set `DATABASE_URL` in the API to the project's connection string.
 
-To try it, search for `FC 02 A09 DB 09`, `FC-02-A09-DB-01` or `ek01a03fk01`.
+### Building data (OpenStreetMap import)
+
+```bash
+cd server
+npm run import:osm                  # Wuse 2, Abuja (default pilot area)
+npm run import:osm -- --dry-run     # fetch and assign codes without writing
+npm run import:osm -- --bbox minLng,minLat,maxLng,maxLat --state LA --lga 10
+```
+
+This pulls every building footprint in the box from OpenStreetMap through Overpass and assigns each one a **simulated** code: `<state><lga>SIM<area><unit>`. The state and LGA codes are NIPOST's real codes (`FC` 02 = Abuja Municipal). The district is always `SIM`, which is valid NIPOST syntax but never a real district, so simulated codes can't collide with real addresses. Codes are assigned in a north-west to south-east sweep, so neighbouring buildings share an area code.
+
+Re-running is safe. Buildings already imported keep their codes and get refreshed footprints, and new OSM buildings get the next free codes.
+
+Codes to try in Wuse 2: `FC 02 SIM BP 88` (Silverbird Cinemas), `FC 02 SIM AV 71` (Promel Hotel), `FC 02 SIM AE 23` (Emab Plaza). `ek01a03fk01` is a demo building in Ado-Ekiti.
 
 ## API
 

@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node --watch-path=src src/index.js",
     "start": "node src/index.js",
-    "test": "node --test"
+    "test": "node --test",
+    "import:osm": "node scripts/import-osm.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

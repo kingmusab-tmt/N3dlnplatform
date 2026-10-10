@@ -1,7 +1,7 @@
 -- =============================================================================
--- Demo seed data: a handful of simulated buildings in Wuse 2, Abuja (FCT) and
--- one in Ado-Ekiti, so the API and map can be exercised end to end.
--- Replace with OSM footprints for the real pilot area.
+-- Demo seed data: one simulated building in Ado-Ekiti, to show the platform
+-- spanning states. Real footprints come from OpenStreetMap:
+--   cd server && npm run import:osm      (Wuse 2, Abuja by default)
 -- =============================================================================
 
 -- Builds a rectangular footprint of width x depth metres around a lng/lat by
@@ -26,14 +26,6 @@ $$;
 
 -- center_point is left NULL; the trigger derives it from geom.
 INSERT INTO buildings (nipost_code, geom, metadata) VALUES
-    ('FC02A09DB01', demo_footprint(7.47862, 9.07795, 28, 18),
-        '{"building_type":"residential","name":"Block A, Aminu Kano Cres.","height_m":12,"floors":4,"gate":{"lng":7.47862,"lat":9.07785,"side":"south"}}'),
-    ('FC02A09DB02', demo_footprint(7.47912, 9.07801, 22, 22),
-        '{"building_type":"commercial","name":"Plaza 2","height_m":24,"floors":8,"gate":{"lng":7.47912,"lat":9.07790,"side":"south"}}'),
-    ('FC02A09DB03', demo_footprint(7.47960, 9.07808, 18, 14),
-        '{"building_type":"residential","height_m":7,"floors":2}'),
-    ('FC02A09DB09', demo_footprint(7.47890, 9.07745, 34, 20),
-        '{"building_type":"mixed_use","name":"Wuse 2 Mall Annex","height_m":18,"floors":6,"gate":{"lng":7.47873,"lat":9.07736,"side":"south-west"}}'),
     ('EK01A03FK01', demo_footprint(5.22090, 7.62330, 20, 16),
         '{"building_type":"residential","height_m":6,"floors":2}')
 ON CONFLICT (nipost_code) DO NOTHING;
