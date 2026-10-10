@@ -3,7 +3,7 @@ import { PLAZA, emailedCode, signInWithPhone } from './helpers';
 
 test('sign in by phone, claim a building, share it, and manage it in My places', async ({ page, request }) => {
   // Signed out: claiming needs an account.
-  await page.goto(`/?code=${PLAZA.code}`);
+  await page.goto(`/map?code=${PLAZA.code}`);
   await page.getByRole('link', { name: `Sign in to claim ${PLAZA.formatted}` }).click();
 
   // Phone sign-in returns to the same building.
@@ -52,7 +52,7 @@ test('sign in by phone, claim a building, share it, and manage it in My places',
 
   // Signing out goes back to the map, signed out.
   await page.getByRole('button', { name: 'Sign out' }).click();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/map$/);
   await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
 });
 

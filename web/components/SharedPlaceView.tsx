@@ -130,7 +130,7 @@ export default function SharedPlaceView({ place }: { place: SharedPlace }) {
 
           <p className="mt-3 text-xs text-slate-500">
             Unverified, owner-submitted details. Code is simulated for the pilot.{' '}
-            <Link href="/" className="text-slate-400 underline hover:text-slate-200">
+            <Link href="/map" className="text-slate-400 underline hover:text-slate-200">
               Find another address
             </Link>
           </p>

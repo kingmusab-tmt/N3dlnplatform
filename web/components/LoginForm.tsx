@@ -164,7 +164,7 @@ export default function LoginForm({ next }: { next: string }) {
         </form>
       )}
 
-      <Link href="/" className="mt-5 block text-center text-sm text-slate-500 hover:text-slate-300">
+      <Link href="/map" className="mt-5 block text-center text-sm text-slate-500 hover:text-slate-300">
         ← Back to the map
       </Link>
     </div>

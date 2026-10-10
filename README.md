@@ -7,7 +7,8 @@ One Next.js app serves both the website and the B2B API, so it deploys as a sing
 ```
 supabase/          PostGIS schema (migrations/) + demo data (seed.sql)
 web/
-  app/             Pages: / (search), /rider (routing sandbox), /h/[id] (shared place)
+  app/             Pages: / (landing), /map (3D search map), /rider (navigation),
+                   /h/[share_id] (shared place), /login, /account (My places)
   app/api/v1/      API route handlers (one folder per endpoint)
   lib/server/      API logic: DB, NIPOST & Mapbox clients, auth, rate limits
   scripts/         CLI: OpenStreetMap import, API key management

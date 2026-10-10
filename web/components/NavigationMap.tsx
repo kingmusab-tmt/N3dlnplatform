@@ -129,7 +129,7 @@ export default function NavigationMap({ initialCode, editGateFor }: { initialCod
     if (!editGateFor || gateEditStarted.current || user === undefined || status.kind !== 'found') return;
     gateEditStarted.current = true;
     if (!user) {
-      router.replace(`/login?next=${encodeURIComponent(`/?code=${initialCode}&gate=${editGateFor}`)}`);
+      router.replace(`/login?next=${encodeURIComponent(`/map?code=${initialCode}&gate=${editGateFor}`)}`);
       return;
     }
     void (async () => {
@@ -289,7 +289,7 @@ export default function NavigationMap({ initialCode, editGateFor }: { initialCod
 
       {AUTH_ENABLED && user !== undefined && (
         <Link
-          href={user ? '/account' : '/login?next=/'}
+          href={user ? '/account' : '/login?next=/map'}
           className="absolute right-4 top-4 z-10 rounded-xl border border-white/10 bg-slate-900/85 px-3 py-2.5 text-sm font-medium text-slate-100 shadow-2xl backdrop-blur hover:bg-slate-800"
         >
           {user ? 'My places' : 'Sign in'}
@@ -540,7 +540,7 @@ function ClaimPanel({
   if (state.kind === 'closed' && !user && AUTH_ENABLED) {
     return (
       <Link
-        href={`/login?next=${encodeURIComponent(`/?code=${code}`)}`}
+        href={`/login?next=${encodeURIComponent(`/map?code=${code}`)}`}
         aria-disabled={user === undefined}
         className="mt-3 block w-full rounded-lg border border-[#39FF14]/40 px-3 py-2 text-center font-medium text-[#39FF14] transition hover:bg-[#39FF14]/10"
       >

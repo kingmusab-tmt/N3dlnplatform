@@ -502,7 +502,7 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
           onSubmit={handleSubmit}
           className="absolute left-3 right-14 top-3 flex gap-2 rounded-xl border border-white/10 bg-slate-900/90 p-2 shadow-2xl backdrop-blur sm:right-auto sm:w-[400px]"
         >
-          <Link href="/" aria-label="Back to search" className="grid place-items-center px-2 text-slate-400 hover:text-slate-100">
+          <Link href="/map" aria-label="Back to search" className="grid place-items-center px-2 text-slate-400 hover:text-slate-100">
             ←
           </Link>
           <label htmlFor="rider-code" className="sr-only">

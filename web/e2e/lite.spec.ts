@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { PLAZA } from './helpers';
 
 test('switch to the lite map and back; the choice is remembered', async ({ page }) => {
-  await page.goto(`/?code=${PLAZA.code}`);
+  await page.goto(`/map?code=${PLAZA.code}`);
   await expect(page.getByText(PLAZA.name)).toBeVisible();
   const detail = page.getByRole('radiogroup', { name: 'Map detail' });
   await expect(detail.getByRole('radio', { name: /^3D/ })).toHaveAttribute('aria-checked', 'true');
@@ -20,7 +20,7 @@ test('switch to the lite map and back; the choice is remembered', async ({ page 
   await expect(page.getByRole('radiogroup', { name: 'Map detail' }).getByRole('radio', { name: 'Lite' })).toHaveAttribute('aria-checked', 'true');
 
   // And back to 3D.
-  await page.goto(`/?code=${PLAZA.code}`);
+  await page.goto(`/map?code=${PLAZA.code}`);
   await page.getByRole('radiogroup', { name: 'Map detail' }).getByRole('radio', { name: '3D' }).click();
   await expect(page.getByRole('radiogroup', { name: 'Lighting' })).toBeVisible();
 });
@@ -33,7 +33,7 @@ test.describe('on a data-saver phone', () => {
   });
 
   test('uses the lite map automatically', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/map');
     await expect(page.getByRole('radiogroup', { name: 'Map detail' }).getByRole('radio', { name: 'Lite · auto' })).toHaveAttribute(
       'aria-checked',
       'true',

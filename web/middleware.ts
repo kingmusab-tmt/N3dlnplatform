@@ -1,7 +1,8 @@
 // Runs before pages and API routes:
-//  1. Keeps the Supabase Auth session fresh, rewriting its cookies when the
+//  1. Redirects old map links (/?code=…) to /map, where the map now lives.
+//  2. Keeps the Supabase Auth session fresh, rewriting its cookies when the
 //     access token is refreshed (route handlers only read them).
-//  2. CORS for the public API, so partners can also call it from browsers.
+//  3. CORS for the public API, so partners can also call it from browsers.
 //     Keyless (website) access is decided in lib/server/http.ts, not here.
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
@@ -18,6 +19,13 @@ const CORS_HEADERS = {
 };
 
 export async function middleware(req: NextRequest) {
+  // The map used to live at "/": keep old links like /?code=…&gate=… working.
+  if (req.nextUrl.pathname === '/' && req.nextUrl.searchParams.has('code')) {
+    const url = req.nextUrl.clone();
+    url.pathname = '/map';
+    return NextResponse.redirect(url, 308);
+  }
+
   const isApi = req.nextUrl.pathname.startsWith('/api/v1');
   if (isApi && req.method === 'OPTIONS') return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
 

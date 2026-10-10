@@ -7,7 +7,7 @@ test('mark and change a gate from My places', async ({ page, request }) => {
   test.skip(health.routing !== 'mapbox', 'Needs a Mapbox token to render the map.');
 
   // Sign in and claim the test building without a gate.
-  await page.goto(`/login?next=${encodeURIComponent(`/?code=${PLAZA.code}`)}`);
+  await page.goto(`/login?next=${encodeURIComponent(`/map?code=${PLAZA.code}`)}`);
   await signInWithPhone(page);
   await page.getByRole('button', { name: `This is my place: claim ${PLAZA.formatted}` }).click();
   await page.getByLabel('Name for this place').fill('E2E Gate test');
