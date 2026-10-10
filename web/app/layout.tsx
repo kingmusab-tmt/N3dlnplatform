@@ -3,6 +3,8 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import './globals.css';
 
 export const metadata: Metadata = {
+  // Share-link preview cards need absolute URLs; set SITE_URL when deployed.
+  metadataBase: new URL(process.env.SITE_URL ?? 'http://localhost:3000'),
   title: 'NIPOST 3D Navigator',
   description: 'Resolve a Nigerian digital postcode to its exact 3D building footprint.',
 };

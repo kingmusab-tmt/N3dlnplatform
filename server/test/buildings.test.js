@@ -105,3 +105,49 @@ describe('/api/v1/buildings', () => {
     });
   });
 });
+
+describe('GET /api/v1/claims/:id', () => {
+  const CLAIM_ID = '3f2b8c1e-9a4d-4e7b-8c2a-1d5e6f7a8b9c';
+  const db = {
+    async query(sql, [id]) {
+      assert.match(sql, /FROM claims c/);
+      if (id !== CLAIM_ID) return { rows: [] };
+      return {
+        rows: [{
+          ...ROW,
+          claim_id: CLAIM_ID,
+          label: 'Home',
+          delivery_notes: 'Blue gate',
+          status: 'unverified',
+          created_at: '2026-10-10T00:00:00Z',
+        }],
+      };
+    },
+  };
+  let server;
+  let base;
+  before(async () => {
+    server = createApp(db).listen(0);
+    await new Promise((r) => server.once('listening', r));
+    base = `http://127.0.0.1:${server.address().port}/api/v1/claims`;
+  });
+  after(() => server.close());
+
+  it('returns the claim with its building, uncached', async () => {
+    const res = await fetch(`${base}/${CLAIM_ID}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('cache-control'), 'private, no-store');
+    const body = await res.json();
+    assert.equal(body.formatted, 'FC 02 SIM BP 88');
+    assert.equal(body.building.geometry.type, 'Polygon');
+    assert.deepEqual(
+      { label: body.claim.label, notes: body.claim.delivery_notes, id: body.claim.id },
+      { label: 'Home', notes: 'Blue gate', id: CLAIM_ID },
+    );
+  });
+
+  it('404s for unknown and malformed ids without querying for junk', async () => {
+    assert.equal((await fetch(`${base}/00000000-0000-0000-0000-000000000000`)).status, 404);
+    assert.equal((await fetch(`${base}/not-a-uuid`)).status, 404);
+  });
+});

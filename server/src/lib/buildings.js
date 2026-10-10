@@ -2,7 +2,7 @@ import { formatPostcode, parsePostcode } from './postcode.js';
 
 // Postgres builds the GeoJSON itself, so geometry never round-trips through JS.
 // ST_AsGeoJSON(..., 7) keeps 7 decimal places (~1 cm), plenty for a gate.
-const BUILDING_COLUMNS = `
+export const BUILDING_COLUMNS = `
     id,
     nipost_code,
     metadata,

@@ -42,3 +42,18 @@ export type Claim = {
   status: 'unverified' | 'verified' | 'rejected';
   created_at: string;
 };
+
+/** A claimed building as served behind a shareable /h/<id> link. */
+export type SharedPlace = NavigateResponse & {
+  claim: Omit<Claim, 'code' | 'formatted'>;
+};
+
+/** Where a rider should head: the mapped gate if known, else the building center. */
+export function destinationOf(place: NavigateResponse): [number, number] {
+  const gate = place.building?.properties.gate as { lng?: number; lat?: number } | undefined;
+  return typeof gate?.lng === 'number' && typeof gate?.lat === 'number' ? [gate.lng, gate.lat] : place.center;
+}
+
+export function googleMapsDirectionsUrl([lng, lat]: [number, number]) {
+  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
+}
