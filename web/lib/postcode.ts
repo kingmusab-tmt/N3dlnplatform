@@ -57,3 +57,19 @@ export function destinationOf(place: NavigateResponse): [number, number] {
 export function googleMapsDirectionsUrl([lng, lat]: [number, number]) {
   return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
 }
+
+export type RouteProfile = 'driving' | 'cycling' | 'walking';
+
+/** GET /api/v1/navigate/:code/route */
+export type RouteResponse = NavigateResponse & {
+  profile: RouteProfile;
+  origin: [number, number];
+  destination: { point: [number, number]; kind: 'gate' | 'center' };
+  route: {
+    geometry: { type: 'LineString'; coordinates: [number, number][] };
+    distance_m: number;
+    duration_s: number;
+    steps: { instruction: string; distance_m: number; road: string; maneuver: string; location: [number, number] }[];
+  };
+  lastMile: { geometry: { type: 'LineString'; coordinates: [number, number][] }; distance_m: number } | null;
+};

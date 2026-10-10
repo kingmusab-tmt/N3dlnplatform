@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { createApp } from './app.js';
 import { pool } from './db.js';
+import { createDirectionsClient } from './lib/directions.js';
 import { createNipostClient } from './lib/nipost.js';
 
 const port = Number(process.env.PORT ?? 4000);
@@ -14,7 +15,10 @@ const nipost = process.env.NIPOST_API_KEY
   : null;
 if (!nipost) console.warn('NIPOST_API_KEY not set: postcodes will not be verified against NIPOST.');
 
-const app = createApp(pool, { nipost });
+const directions = process.env.MAPBOX_TOKEN ? createDirectionsClient({ accessToken: process.env.MAPBOX_TOKEN }) : null;
+if (!directions) console.warn('MAPBOX_TOKEN not set: /navigate/:code/route is disabled.');
+
+const app = createApp(pool, { nipost, directions });
 
 const server = app.listen(port, () => {
   console.log(`NIPOST navigation API listening on http://localhost:${port}`);

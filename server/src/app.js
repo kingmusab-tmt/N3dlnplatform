@@ -4,14 +4,18 @@ import { createBuildingsRouter } from './routes/buildings.js';
 import { createClaimsRouter } from './routes/claims.js';
 import { createNavigateRouter } from './routes/navigate.js';
 
-export function createApp(db, { nipost = null, claimLimit } = {}) {
+export function createApp(db, { nipost = null, directions = null, claimLimit } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.use(cors({ origin: process.env.CORS_ORIGIN?.split(',') ?? '*' }));
   app.use(express.json({ limit: '10kb' }));
 
-  app.get('/health', (_req, res) => res.json({ ok: true, nipost: nipost ? `level ${nipost.level}` : 'not configured' }));
-  app.use('/api/v1/navigate', createNavigateRouter(db, nipost));
+  app.get('/health', (_req, res) => res.json({
+      ok: true,
+      nipost: nipost ? `level ${nipost.level}` : 'not configured',
+      routing: directions ? 'mapbox' : 'not configured',
+    }));
+  app.use('/api/v1/navigate', createNavigateRouter(db, nipost, directions));
   app.use('/api/v1/buildings', createBuildingsRouter(db, { claimLimit }));
   app.use('/api/v1/claims', createClaimsRouter(db));
 

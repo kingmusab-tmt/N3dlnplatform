@@ -1,6 +1,7 @@
 'use client';
 
 import type { Map as MapboxMap, Marker } from 'mapbox-gl';
+import Link from 'next/link';
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import {
   MAPBOX_TOKEN,
@@ -236,6 +237,14 @@ function ResultCard({ result }: { result: NavigateResponse }) {
           {lat.toFixed(6)}, {lng.toFixed(6)}
         </dd>
       </dl>
+      {result.building && (
+        <Link
+          href={`/rider?code=${result.code}`}
+          className="mt-3 block rounded-lg border border-sky-400/40 px-3 py-2 text-center font-medium text-sky-300 transition hover:bg-sky-400/10"
+        >
+          Rider view: route a delivery here
+        </Link>
+      )}
       {result.building && <ClaimPanel code={result.code} formatted={result.formatted} />}
     </div>
   );

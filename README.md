@@ -60,6 +60,17 @@ Every response includes `verification.status`. It is `verified` or `unregistered
 | `GET /api/v1/buildings/at?lng=&lat=` | Building under a map click: the containing footprint, or the nearest within 12 m. Same response shape as `/navigate`, plus `pin`. 404 `NO_BUILDING_HERE` on empty ground. |
 | `POST /api/v1/buildings/:code/claims` | Body `{ label, delivery_notes? }` (max 80 and 500 characters). Returns 201 with the claim's `id`. Rate limited to 20 per IP per hour. |
 
+### Routing and the Rider View
+
+`GET /api/v1/navigate/:code/route?from=lng,lat&profile=driving|cycling|walking` returns:
+- **`route`**: road route from the rider to the building (GeoJSON line, distance, duration, turn-by-turn steps).
+- **`lastMile`**: the straight on-foot leg from where the road ends to the **gate**, or to the building center if no gate is mapped.
+- **`destination.kind`**: `gate` or `center`.
+
+Routing uses the Mapbox Directions API from the server, which needs `MAPBOX_TOKEN` in `server/.env` (the public `pk.` token works). The endpoint returns 503 if that isn't set. Mapbox has no motorbike profile, so `driving` stands in for dispatch bikes.
+
+`/rider?code=FC02SIMBP88` is a phone-sized sandbox of a dispatch rider's app. The rider starts at a simulated point about 1.5 km away, so it works when you aren't in Abuja. Tap the map to move the start or use **Use my GPS**, switch the travel mode, and press **Simulate ride** to animate the rider along the route into the 3D building.
+
 ### Shareable links
 
 Each claim gets a link `/h/<claim-id>`. The page shows the building in 3D with the claim's label and delivery notes, a **Directions** button that opens Google Maps, and Copy and WhatsApp share buttons. `GET /api/v1/claims/:id` serves the data.
