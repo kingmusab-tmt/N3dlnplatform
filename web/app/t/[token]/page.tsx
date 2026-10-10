@@ -14,7 +14,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const tracking = await load((await params).token);
   const name = tracking?.building?.properties.name;
   return {
-    title: tracking ? `Delivery to ${typeof name === 'string' ? name : tracking.formatted} · TMTechEASY Delivery` : 'Tracking link not found',
+    title: tracking ? `Delivery to ${typeof name === 'string' ? name : tracking.formatted} · TMTechEasy Gate` : 'Tracking link not found',
     // Personal delivery details: keep tracking pages out of search engines.
     robots: { index: false, follow: false },
   };

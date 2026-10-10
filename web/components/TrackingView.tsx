@@ -217,7 +217,7 @@ export default function TrackingView({ token, initial }: { token: string; initia
 
         <div className="mt-3 flex items-center justify-between gap-2 text-xs text-slate-400">
           <Link href="/" className="underline hover:text-slate-200">
-            TMTechEASY Delivery
+            TMTechEasy Gate
           </Link>
           <MapModeToggle className="rounded-lg bg-slate-800 p-0.5" />
         </div>

@@ -1,4 +1,4 @@
-# TMTechEASY Delivery (MVP)
+# TMTechEasy Gate (MVP)
 
 3D addressing and navigation built on Nigeria's NIPOST digital postcodes, for emergencies and deliveries. MVP by Triple Multipurpose Technology.
 

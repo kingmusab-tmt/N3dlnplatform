@@ -28,7 +28,7 @@ export default async function OpenGraphImage({ params }: { params: Promise<{ id:
         }}
       >
         <div style={{ display: 'flex', fontSize: 30, color: '#64748b', letterSpacing: 4 }}>
-          TMTECHEASY DELIVERY · SHARED LOCATION
+          TMTechEasy Gate · SHARED LOCATION
         </div>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', fontSize: 64, fontWeight: 700 }}>{label}</div>

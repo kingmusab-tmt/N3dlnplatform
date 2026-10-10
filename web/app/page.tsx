@@ -7,11 +7,11 @@ import { getDeps } from '@/lib/server/deps';
 import { getLandingStats } from '@/lib/server/stats';
 
 export const metadata: Metadata = {
-  title: 'TMTechEASY Delivery · Every address, down to the gate',
+  title: 'TMTechEasy Gate · Every address, down to the gate',
   description:
     'Turn a Nigerian digital postcode into the exact building in 3D, the gate to use, and turn-by-turn directions, for fire crews, ambulances, police and delivery riders. A map, a navigator app and an API.',
   openGraph: {
-    title: 'TMTechEASY Delivery',
+    title: 'TMTechEasy Gate',
     description: 'Every Nigerian address, in 3D, down to the gate: for emergencies and deliveries.',
     images: [{ url: '/landing/hero-city.jpg', width: 1600, height: 900 }],
   },
@@ -161,7 +161,7 @@ export default async function LandingPage() {
         <nav className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <Link href="/" className="flex items-center gap-2 font-semibold text-white">
             <span aria-hidden className="h-3 w-3 rounded-sm bg-[#39FF14] shadow-[0_0_12px_#39FF14]" />
-            TMTechEASY Delivery
+            TMTechEasy Gate
           </Link>
           <div className="hidden items-center gap-6 text-sm text-slate-400 md:flex">
             <a href="#use-cases" className="hover:text-white">Who it serves</a>
@@ -265,7 +265,7 @@ export default async function LandingPage() {
               </a>
               .
             </strong>{' '}
-            TMTechEASY Delivery gives directions; it does not alert or dispatch emergency services. Once help is on the way,
+            TMTechEasy Gate gives directions; it does not alert or dispatch emergency services. Once help is on the way,
             share your place link with the responders so they find the right gate.
           </p>
         </section>
@@ -281,7 +281,7 @@ export default async function LandingPage() {
                 for an ambulance or a fire crew, those minutes can cost lives.
               </p>
               <p className="mt-4 text-slate-300">
-                NIPOST’s National Digital Postcode gives every building an 11-character code. TMTechEASY Delivery turns that
+                NIPOST’s National Digital Postcode gives every building an 11-character code. TMTechEasy Gate turns that
                 code into something anyone on the way can follow: the building’s real footprint, the gate the owner marked,
                 and a route that ends there.
               </p>
@@ -498,7 +498,7 @@ export default async function LandingPage() {
           <div className="max-w-md">
             <p className="flex items-center gap-2 font-semibold text-slate-300">
               <span aria-hidden className="h-2.5 w-2.5 rounded-sm bg-[#39FF14]" />
-              TMTechEASY Delivery
+              TMTechEasy Gate
             </p>
             <p className="mt-2">
               An independent platform built on Nigeria’s National Digital Postcode system. It is not operated by or

@@ -3,7 +3,7 @@ import type { MetadataRoute } from 'next';
 // Installable app ("Add to Home screen"): opens straight into the Navigator.
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'TMTechEASY Delivery',
+    name: 'TMTechEasy Gate',
     short_name: 'TMTechEASY',
     description: 'Every address, in 3D, down to the gate. Navigation for delivery riders and emergency responders.',
     start_url: '/rider',

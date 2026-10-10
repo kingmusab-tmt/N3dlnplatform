@@ -6,7 +6,7 @@ import './globals.css';
 export const metadata: Metadata = {
   // Share-link preview cards need absolute URLs; set SITE_URL when deployed.
   metadataBase: new URL(process.env.SITE_URL ?? 'http://localhost:3000'),
-  title: 'TMTechEASY Delivery',
+  title: 'TMTechEasy Gate',
   description: 'Resolve a Nigerian digital postcode to its exact 3D building and gate, with directions for emergency responders and delivery riders.',
 };
 

@@ -1,4 +1,4 @@
-// TMTechEASY Delivery service worker: keeps the Rider View usable with a weak
+// TMTechEasy Gate service worker: keeps the Rider View usable with a weak
 // or no connection. Mapbox's own map data is not cached here (its terms limit
 // that); the browser's normal HTTP cache still applies to it.
 const VERSION = 'v2';

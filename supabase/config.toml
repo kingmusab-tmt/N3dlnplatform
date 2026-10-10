@@ -246,11 +246,11 @@ otp_expiry = 3600
 
 # Sign-in emails carry a 6-digit code (the app uses codes, not links).
 [auth.email.template.magic_link]
-subject = "Your TMTechEASY Delivery sign-in code"
+subject = "Your TMTechEasy Gate sign-in code"
 content_path = "./supabase/templates/otp.html"
 
 [auth.email.template.confirmation]
-subject = "Your TMTechEASY Delivery sign-in code"
+subject = "Your TMTechEasy Gate sign-in code"
 content_path = "./supabase/templates/otp.html"
 
 # Uncomment to customize email template
@@ -270,7 +270,7 @@ enable_signup = true
 # If enabled, users need to confirm their phone number before signing in.
 enable_confirmations = false
 # Template for sending OTP to users
-template = "Your TMTechEASY Delivery code is {{ .Code }}"
+template = "Your TMTechEasy Gate code is {{ .Code }}"
 # Controls the minimum amount of time that must pass before sending another sms otp.
 max_frequency = "5s"
 

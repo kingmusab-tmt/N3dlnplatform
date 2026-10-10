@@ -3,7 +3,7 @@ import RiderView from '@/components/RiderView';
 import { parsePurpose } from '@/lib/purpose';
 
 export const metadata: Metadata = {
-  title: 'Navigator · TMTechEASY Delivery',
+  title: 'Navigator · TMTechEasy Gate',
   description: 'Turn-by-turn directions to the gate of a NIPOST-coded building, for delivery riders and emergency responders.',
 };
 

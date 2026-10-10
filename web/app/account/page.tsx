@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import MyPlaces from '@/components/MyPlaces';
 
-export const metadata: Metadata = { title: 'My places · TMTechEASY Delivery', robots: { index: false } };
+export const metadata: Metadata = { title: 'My places · TMTechEasy Gate', robots: { index: false } };
 
 export default function AccountPage() {
   return (

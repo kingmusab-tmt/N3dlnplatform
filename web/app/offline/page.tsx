@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
-export const metadata: Metadata = { title: 'Offline · TMTechEASY Delivery' };
+export const metadata: Metadata = { title: 'Offline · TMTechEasy Gate' };
 
 // Shown by the service worker when a page isn't cached and there's no connection.
 export default function OfflinePage() {
