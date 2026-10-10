@@ -23,8 +23,9 @@ Owner: **you** = needs your accounts or a decision · **dev** = code work.
 
 ## Reliability
 
-- [ ] **CI:** run `npm test` and the type check on every push (GitHub Actions). *(dev)*
-- [ ] **Browser end-to-end tests:** Playwright for search, claim, gate, share and rider flows, run in CI. *(dev)*
+- [x] **CI:** type check, unit tests and build on every push (GitHub Actions). *(done)*
+- [x] **Browser end-to-end tests:** Playwright for search, sign-in, claim, share, Directions, My places and live navigation, run in CI. *(done)*
+- [ ] **Add the `MAPBOX_TOKEN` GitHub secret,** so CI renders maps and runs the routing tests. *(you)*
 - [ ] **Error tracking and uptime alerts** (e.g. Sentry and an uptime monitor). *(dev, plus an account from you)*
 - [ ] **Add a favicon.** The browser currently gets a 404 for `/favicon.ico`. *(dev)*
 - [ ] **Field test in Wuse 2:** walk or ride real deliveries and check GPS against the 3D map. Phase 3 of the MVP plan. *(you)*

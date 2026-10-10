@@ -117,5 +117,15 @@ Codes are stored in canonical form: 11 uppercase characters with no separators. 
 ## Tests
 
 ```bash
-cd web && npm test
+cd web
+npm test            # unit + API tests (Vitest), no services needed
+npm run test:e2e    # browser tests (Playwright); needs `supabase start`
 ```
+
+The browser tests cover search, phone and email sign-in, claiming, share links and Directions, My places (edit, new link, delete), and live delivery navigation with a simulated GPS. They load their own buildings in code district `E2E` (`web/e2e/fixtures.sql`), refuse to run against a non-local database, and reuse a running `npm run dev`.
+
+**CI** (`.github/workflows/ci.yml`) runs on every push and pull request:
+- **Fast checks:** type check, unit tests and a production build.
+- **Browser tests:** against a fresh local Supabase in Docker.
+
+Add a `MAPBOX_TOKEN` repository secret (Settings → Secrets and variables → Actions) so CI also renders the map and runs the routing tests; without it those tests are skipped.
