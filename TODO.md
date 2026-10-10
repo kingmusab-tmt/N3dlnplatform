@@ -19,6 +19,9 @@ Owner: **you** = needs your accounts or a decision · **dev** = code work.
 - [x] **Mark or change a gate from My places**: opens the map in gate mode, with Save gate. *(done)*
 - [x] **Lite map mode** for budget phones and limited data: automatic on data saver, 2G or ≤2 GB RAM, with a manual 3D/Lite switch. Uses about 60% less map data. *(done)*
 - [x] **Dispatch features:** live customer tracking links, proof of delivery (code and/or photo), multi-stop runs with optimised order, and run links for partners' riders. *(done)*
+- [x] **Emergency use, not only delivery:** fire service, ambulance and police modes in the Navigator (`/rider?for=…`): road directions to the gate, no run or proof of delivery, building facts on arrival, and a "call 112" reminder (the app gives directions only). Responder links on the map and on shared places; landing page, README and API docs updated. *(done)*
+- [ ] **Talk to emergency services** (FCT Fire Service, NEMA/SEMA, hospital ambulance units, Police) about piloting the emergency navigator, and whether call-takers want an API integration. *(you)*
+- [ ] **Local languages** (Hausa, Yoruba, Igbo, Pidgin) using NCAIR's N-ATLaS model. *(dev, next)*
 - [x] **Offline-friendly Rider View:** installable app (PWA); the Rider View, its run and visited building tiles work without signal; navigation falls back to straight-line guidance; delivery proofs and position updates are saved on the phone and sent when back online. *(done; check on a real phone in the field test)*
 - [ ] **More coverage:** import the next pilot area (e.g. Ikeja) with `npm run import:osm -- --bbox … --state LA --lga …`. *(dev; you pick the area)*
 - [ ] **Partner self-service:** request an API key, see usage, and count requests per key for billing. *(dev)*

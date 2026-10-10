@@ -4,7 +4,7 @@ import { fetchSharedPlace } from '@/lib/api';
 // The "digital card" shown when a share link is pasted into WhatsApp, X, etc.
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
-export const alt = 'Delivery location card';
+export const alt = 'Shared location card';
 
 export default async function OpenGraphImage({ params }: { params: Promise<{ id: string }> }) {
   const place = await fetchSharedPlace((await params).id);

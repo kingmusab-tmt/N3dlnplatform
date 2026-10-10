@@ -20,6 +20,7 @@ import {
   startPulse,
   type LightPreset,
 } from '@/lib/map';
+import EmergencyLinks from '@/components/EmergencyLinks';
 import MapModeToggle from '@/components/MapModeToggle';
 import ShareButtons from '@/components/ShareButtons';
 import { resolveMapMode, type MapMode } from '@/lib/mapMode';
@@ -481,12 +482,15 @@ function ResultCard({ result, ...gateControls }: { result: NavigateResponse } & 
         </dd>
       </dl>
       {result.building && (
-        <Link
-          href={`/rider?code=${result.code}`}
-          className="mt-3 block rounded-lg border border-sky-400/40 px-3 py-2 text-center font-medium text-sky-300 transition hover:bg-sky-400/10"
-        >
-          Rider view: route a delivery here
-        </Link>
+        <div className="mt-3 space-y-2">
+          <Link
+            href={`/rider?code=${result.code}`}
+            className="block rounded-lg border border-sky-400/40 px-3 py-2 text-center font-medium text-sky-300 transition hover:bg-sky-400/10"
+          >
+            Rider view: route a delivery here
+          </Link>
+          <EmergencyLinks code={result.code} />
+        </div>
       )}
       {result.building && <ClaimPanel code={result.code} formatted={result.formatted} {...gateControls} />}
     </div>
@@ -600,7 +604,7 @@ function ClaimPanel({
         />
       </label>
       <label className="block">
-        <span className="text-xs text-slate-400">Delivery notes for riders (optional)</span>
+        <span className="text-xs text-slate-400">Notes for riders and responders (optional)</span>
         <textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}

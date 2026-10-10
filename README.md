@@ -1,15 +1,18 @@
 # TMTechEASY Delivery (MVP)
 
-3D logistics and navigation built on Nigeria's NIPOST digital postcodes. MVP by Triple Multipurpose Technology.
+3D addressing and navigation built on Nigeria's NIPOST digital postcodes, for emergencies and deliveries. MVP by Triple Multipurpose Technology.
 
-Resolves a Nigerian digital postcode (e.g. `FC 02 SIM BP 87`) to its exact building footprint, flies a 3D Mapbox camera to it, and routes dispatch riders to the building.
+Resolves a Nigerian digital postcode (e.g. `FC 02 SIM BP 87`) to its exact building footprint, flies a 3D Mapbox camera to it, and routes whoever is on the way to the building's gate:
+
+- **Fire service, ambulance, police:** the Navigator's emergency modes (`/rider?for=fire|ambulance|police`) give road directions straight to the gate, with building facts (type, floors, street) on arrival. They give directions only; they do not alert emergency services (call 112).
+- **Delivery and dispatch:** multi-stop runs, customer tracking links and proof of delivery.
 
 One Next.js app serves both the website and the B2B API, so it deploys as a single Vercel project.
 
 ```
 supabase/          PostGIS schema (migrations/) + demo data (seed.sql)
 web/
-  app/             Pages: / (landing), /map (3D search map), /rider (navigation),
+  app/             Pages: / (landing), /map (3D search map), /rider (Navigator: delivery and emergency modes),
                    /h/[share_id] (shared place), /login, /account (My places)
   app/api/v1/      API route handlers (one folder per endpoint)
   lib/server/      API logic: DB, NIPOST & Mapbox clients, auth, rate limits

@@ -152,8 +152,8 @@ function PlaceCard({ claim, onChange, onDelete }: { claim: Claim; onChange: (c: 
             onChange={(e) => setNotes(e.target.value)}
             maxLength={500}
             rows={2}
-            placeholder="Delivery notes for riders"
-            aria-label="Delivery notes"
+            placeholder="Notes for riders and responders"
+            aria-label="Notes for riders and responders"
             className="w-full resize-none rounded-lg bg-slate-800 px-3 py-2 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#39FF14]"
           />
           <div className="flex gap-2">

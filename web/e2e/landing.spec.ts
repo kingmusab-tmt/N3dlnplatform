@@ -4,10 +4,11 @@ import { PLAZA } from './helpers';
 test('landing page explains the product and opens the map on a postcode', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1 })).toContainText('down to the gate');
-  for (const section of ['How it works', 'Everything between the postcode and the doorbell', 'Who it’s for', 'An API for logistics and e-commerce']) {
+  for (const section of ['One address system, four kinds of trip', 'How it works', 'Everything between the postcode and the front gate', 'Who it’s for', 'An API for logistics, e-commerce and control rooms']) {
     await expect(page.getByRole('heading', { name: section })).toBeVisible();
   }
   await expect(page.getByText('not operated by or affiliated with NIPOST')).toBeVisible();
+  await expect(page.getByText('it does not alert or dispatch emergency services')).toBeVisible();
 
   // The try-box rejects junk and opens the map on a real code.
   await page.getByLabel('NIPOST postcode').fill('hello');

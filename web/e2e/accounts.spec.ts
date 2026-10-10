@@ -15,7 +15,7 @@ test('sign in by phone, claim a building, share it, and manage it in My places',
   // Claim it.
   await page.getByRole('button', { name: `This is my place: claim ${PLAZA.formatted}` }).click();
   await page.getByLabel('Name for this place').fill('E2E Office');
-  await page.getByLabel(/Delivery notes/).fill('Blue gate');
+  await page.getByLabel(/Notes for riders and responders/).fill('Blue gate');
   await page.getByRole('button', { name: 'Claim', exact: true }).click();
   await expect(page.getByText('Claimed as “E2E Office”')).toBeVisible();
   const firstLink = (await page.locator('a[href*="/h/"]').first().getAttribute('href'))!;
@@ -34,7 +34,7 @@ test('sign in by phone, claim a building, share it, and manage it in My places',
   await expect(card).toContainText('E2E Office');
 
   await card.getByRole('button', { name: 'Edit' }).click();
-  await card.getByLabel('Delivery notes').fill('Blue gate, ring twice');
+  await card.getByLabel('Notes for riders and responders').fill('Blue gate, ring twice');
   await card.getByRole('button', { name: 'Save' }).click();
   await expect(card.getByText('Blue gate, ring twice')).toBeVisible();
 

@@ -4,6 +4,7 @@ import type { Map as MapboxMap } from 'mapbox-gl';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import MapModeToggle from '@/components/MapModeToggle';
+import EmergencyLinks from '@/components/EmergencyLinks';
 import ShareButtons from '@/components/ShareButtons';
 import { resolveMapMode } from '@/lib/mapMode';
 import {
@@ -89,7 +90,7 @@ export default function SharedPlaceView({ place }: { place: SharedPlace }) {
 
       <div className="absolute inset-x-4 bottom-4 sm:bottom-auto sm:left-4 sm:right-auto sm:top-4 sm:w-[400px]">
         <div className="rounded-xl border border-white/10 bg-slate-900/90 p-4 text-sm shadow-2xl backdrop-blur">
-          <p className="text-xs uppercase tracking-wider text-slate-500">Delivery location</p>
+          <p className="text-xs uppercase tracking-wider text-slate-500">Shared location</p>
           <h1 className="mt-1 text-lg font-semibold text-slate-100">{place.claim.label}</h1>
           <p className="font-mono text-xl tracking-widest text-[#39FF14]">{place.formatted}</p>
           {name && <p className="mt-1 text-slate-400">{name}</p>}
@@ -126,6 +127,7 @@ export default function SharedPlaceView({ place }: { place: SharedPlace }) {
             >
               Open in Google Maps instead
             </a>
+            <EmergencyLinks code={place.code} claim={place.claim.share_id} callout />
           </div>
 
           <p className="mt-3 text-xs text-slate-500">

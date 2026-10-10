@@ -21,6 +21,7 @@ import { buildNavPlan, navProgress, straightLinePlan, type NavPlan } from '@/lib
 import { flushProofs, pendingProofs, queueProof } from '@/lib/rider/outbox';
 import { useOnline } from '@/lib/useOnline';
 import { normalizePostcode, type NavigateResponse, type RouteProfile, type RouteResponse } from '@/lib/postcode';
+import { EMERGENCY_NUMBER, PURPOSES, PURPOSE_IDS, buildingFacts, type PurposeId } from '@/lib/purpose';
 import { createVehicleMarker, type VehicleMarker } from '@/lib/vehicles';
 import CustomerLinks from '@/components/rider/CustomerLinks';
 import PodForm, { type PodInput } from '@/components/rider/PodForm';
@@ -64,6 +65,8 @@ type Ride =
   | { kind: 'navigating'; remaining_m: number; next: { instruction: string; in_m: number } | null; accuracy_m: number; rerouting: boolean }
   /** At a stop: proof of delivery. */
   | { kind: 'pod'; saving: boolean; error: string | null }
+  /** An emergency responder reached the building. */
+  | { kind: 'arrived' }
   /** Every stop in the run is done. */
   | { kind: 'run-done' };
 
@@ -90,6 +93,8 @@ type NavState = {
   lastReport: number;
   /** Following a straight line because there was no connection to fetch a route. */
   offlinePlan: boolean;
+  /** Where this leg goes: a run's current stop, or the building an emergency crew is heading to. */
+  target: { code: string; claim: string | null; point: LngLat } | null;
 };
 
 // Without a route, assume ~20 km/h for ETAs.
@@ -99,7 +104,15 @@ const OFFLINE_SPEED_MS = 5.5;
  * @param claimId From a shared link: routes to the gate its owner marked, but
  *   only for the code the link was for, not for later searches.
  */
-export default function RiderView({ initialCode, claimId }: { initialCode?: string; claimId?: string }) {
+export default function RiderView({
+  initialCode,
+  claimId,
+  initialPurpose = 'delivery',
+}: {
+  initialCode?: string;
+  claimId?: string;
+  initialPurpose?: PurposeId;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapReady = useRef<Promise<MapboxMap> | null>(null);
   const vehicle = useRef<VehicleMarker | null>(null);
@@ -108,7 +121,7 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
   const abortRef = useRef<AbortController | null>(null);
   const nav = useRef<NavState>({
     watchId: null, plan: null, offRouteFixes: 0, lastReroute: 0, last: null, heading: 0, follow: true, wakeLock: null,
-    speed: 0, lastReport: 0, offlinePlan: false,
+    speed: 0, lastReport: 0, offlinePlan: false, target: null,
   });
   // The latest position report that failed to send (no connection); sent when back online.
   const pendingReport = useRef<{ run: RunState; body: Parameters<typeof reportPosition>[1] } | null>(null);
@@ -118,6 +131,8 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
   const [origin, setOrigin] = useState<LngLat | null>(null);
   const [originSource, setOriginSource] = useState<OriginSource>('simulated');
   const [profile, setProfile] = useState<RouteProfile>('driving');
+  const [purposeId, setPurposeId] = useState<PurposeId>(initialPurpose);
+  const purpose = PURPOSES[purposeId];
   const [route, setRoute] = useState<RouteResponse | null>(null);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const [ride, setRide] = useState<Ride>({ kind: 'idle' });
@@ -351,6 +366,19 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
     );
   }
 
+  /** Emergency crews travel by road; the choice is kept in the URL so a reload keeps it. */
+  function changePurpose(next: PurposeId) {
+    setPurposeId(next);
+    const url = new URL(window.location.href);
+    if (next === 'delivery') url.searchParams.delete('for');
+    else url.searchParams.set('for', next);
+    window.history.replaceState(null, '', url);
+    if (PURPOSES[next].emergency) {
+      setExtras([]);
+      if (profile !== 'driving') changeProfile('driving');
+    }
+  }
+
   function changeProfile(next: RouteProfile) {
     setProfile(next);
     if (code && origin) {
@@ -409,7 +437,7 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
     }
     stopEverything();
     setRide({ kind: 'locating' });
-    nav.current = { ...nav.current, plan: null, offRouteFixes: 0, lastReroute: 0, last: null, follow: true };
+    nav.current = { ...nav.current, plan: null, offRouteFixes: 0, lastReroute: 0, last: null, follow: true, target: null };
     setFollowing(true);
 
     // Keep the screen on while riding (where supported).
@@ -421,7 +449,13 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
 
     // Fixed for this leg: the stops to create the run with (first leg only) and the travel mode.
     const forProfile = profile;
-    const planned = { first: code, extras, optimize };
+    const planned = {
+      first: code,
+      extras,
+      optimize,
+      // Emergency crews go straight to the building: no run, no tracking links.
+      emergency: purpose.emergency && route ? { point: route.destination.point } : null,
+    };
     nav.current.watchId = navigator.geolocation.watchPosition(
       (pos) => {
         setGpsWarning(null);
@@ -445,7 +479,7 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
   async function onFix(
     pos: GeolocationPosition,
     forProfile: RouteProfile,
-    planned: { first: string; extras: PlannedStop[]; optimize: boolean },
+    planned: { first: string; extras: PlannedStop[]; optimize: boolean; emergency: { point: LngLat } | null },
   ) {
     const map = await mapReady.current;
     const state = nav.current;
@@ -459,15 +493,18 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
       state.lastReroute = Date.now();
       setOrigin(point);
       setOriginSource('gps');
+      const firstClaim = claimId && initialCode && normalizePostcode(initialCode) === planned.first ? claimId : null;
       let active = runRef.current;
-      if (!active) {
+      if (planned.emergency) {
+        state.target = { code: planned.first, claim: firstClaim, point: planned.emergency.point };
+      } else if (!active) {
         try {
           active = await createRun({
             profile: forProfile,
             optimize: planned.optimize,
             from: point,
             stops: [
-              { code: planned.first, claim: claimId && initialCode && normalizePostcode(initialCode) === planned.first ? claimId : null },
+              { code: planned.first, claim: firstClaim },
               ...planned.extras.map((x) => ({ code: x.code })),
             ],
           });
@@ -491,8 +528,12 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
         // A reload resumes this run; the token stays in the #fragment.
         window.history.replaceState(null, '', runUrl(active));
       }
-      const stop = active.stops[active.current];
-      const first = await fetchRoute(stop.code, point, forProfile, false, stop.claim);
+      if (active && !planned.emergency) {
+        const stop = active.stops[active.current];
+        state.target = { code: stop.code, claim: stop.claim, point: stop.destination.point };
+      }
+      const target = state.target!;
+      const first = await fetchRoute(target.code, point, forProfile, false, target.claim);
       if (nav.current.watchId === null) return;
       if (!first) {
         if (navigator.onLine) {
@@ -500,7 +541,7 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
           return;
         }
         // No connection: guide in a straight line until a route can be fetched.
-        state.plan = straightLinePlan(point, stop.destination.point);
+        state.plan = straightLinePlan(point, target.point);
         state.offlinePlan = true;
         state.speed = OFFLINE_SPEED_MS;
         setStatus({ kind: 'ready' });
@@ -509,7 +550,7 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
         state.offlinePlan = false;
         state.speed = first.route.duration_s > 0 ? first.route.distance_m / first.route.duration_s : 0;
       }
-      const far = distanceMetres(point, stop.destination.point);
+      const far = distanceMetres(point, target.point);
       if (far > FAR_AWAY_M) {
         setStatus({ kind: 'error', message: `You're ${Math.round(far / 1000)} km away; the route is long, but navigation will work.` });
       }
@@ -551,7 +592,7 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
     if (progress.arrived) {
       report(true);
       endNavigation();
-      setRide({ kind: 'pod', saving: false, error: null });
+      setRide(planned.emergency ? { kind: 'arrived' } : { kind: 'pod', saving: false, error: null });
       map.flyTo({ ...buildingCamera(state.plan!.destination, mapModeOf(map)), speed: 0.8, essential: true });
       return;
     }
@@ -567,9 +608,9 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
       state.offRouteFixes = 0;
       state.lastReroute = Date.now();
       rerouting = true;
-      const stop = active?.stops[active.current];
-      if (stop) {
-        void fetchRoute(stop.code, point, forProfile, false, stop.claim).then((fresh) => {
+      const target = state.target;
+      if (target) {
+        void fetchRoute(target.code, point, forProfile, false, target.claim).then((fresh) => {
           if (fresh && nav.current.watchId !== null) {
             nav.current.plan = buildNavPlan(fresh);
             nav.current.offlinePlan = false;
@@ -701,7 +742,11 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
 
       {/* Destination search, or the next-turn banner while navigating */}
       {ride.kind === 'navigating' ? (
-        <div className="absolute left-3 right-14 top-3 rounded-xl border border-white/10 bg-emerald-950/95 p-3 shadow-2xl backdrop-blur sm:right-auto sm:w-[400px]">
+        <div
+          className={`absolute left-3 right-14 top-3 rounded-xl border border-white/10 p-3 shadow-2xl backdrop-blur sm:right-auto sm:w-[400px] ${
+            purpose.emergency ? 'bg-red-950/95' : 'bg-emerald-950/95'
+          }`}
+        >
           {ride.next ? (
             <>
               <p className="text-2xl font-semibold text-white">{formatDistance(ride.next.in_m)}</p>
@@ -726,7 +771,7 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
             id="rider-code"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Deliver to… FC 02 SIM BP 87"
+            placeholder={purpose.emergency ? 'Emergency at… FC 02 SIM BP 87' : 'Deliver to… FC 02 SIM BP 87'}
             autoComplete="off"
             spellCheck={false}
             maxLength={24}
@@ -747,7 +792,11 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
       <section className="absolute inset-x-0 bottom-0 max-h-[55dvh] overflow-y-auto rounded-t-2xl border border-white/10 bg-slate-900/95 p-4 text-sm shadow-2xl backdrop-blur sm:inset-x-auto sm:bottom-auto sm:left-3 sm:top-20 sm:max-h-[calc(100dvh-6rem)] sm:w-[400px] sm:rounded-2xl">
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs uppercase tracking-wider text-slate-500">
-            {ride.kind === 'navigating' || ride.kind === 'locating' ? 'Delivering · live GPS' : 'Rider view'}
+            {ride.kind === 'navigating' || ride.kind === 'locating'
+              ? `${purpose.emergency ? `${purpose.icon} ${purpose.who} · responding` : 'Delivering'} · live GPS`
+              : purpose.emergency
+                ? `${purpose.icon} ${purpose.label} · navigator`
+                : 'Rider view'}
           </p>
           {/* Switching reloads the page, so not mid-ride. */}
           <MapModeToggle disabled={busy} className="rounded-lg bg-slate-800 p-0.5" />
@@ -773,11 +822,27 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
           </p>
         )}
 
+        {!busy && ride.kind !== 'pod' && ride.kind !== 'arrived' && !run && (
+          <PurposePicker value={purposeId} onChange={changePurpose} />
+        )}
+        {purpose.emergency && !busy && ride.kind !== 'arrived' && (
+          <p className="mt-2 rounded-lg bg-red-950/60 px-3 py-2 text-xs text-red-100 ring-1 ring-red-400/30">
+            Directions only: this does not call {purpose.id === 'fire' ? 'the fire service' : purpose.id === 'police' ? 'the police' : 'an ambulance'}.
+            In an emergency, call{' '}
+            <a href={`tel:${EMERGENCY_NUMBER}`} className="font-semibold underline">
+              {EMERGENCY_NUMBER}
+            </a>
+            .
+          </p>
+        )}
+
         {!route && status.kind !== 'error' && (
           <p className="mt-2 text-slate-400">
             {status.kind === 'loading'
               ? 'Planning route…'
-              : 'Enter a destination code to route a delivery to the building.'}
+              : purpose.emergency
+                ? 'Enter the postcode of the emergency to get directions to the building’s gate.'
+                : 'Enter a destination code to route a delivery to the building.'}
           </p>
         )}
 
@@ -843,7 +908,7 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
                     onClick={finishRun}
                     className="rounded-lg border border-red-400/30 px-3 py-2 text-red-300 hover:bg-red-400/10"
                   >
-                    End run
+                    {run ? 'End run' : 'End'}
                   </button>
                 </div>
                 {run && <CustomerLinks run={run} />}
@@ -859,6 +924,29 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
                 />
                 <CustomerLinks run={run} />
               </>
+            ) : ride.kind === 'arrived' ? (
+              <div className="mt-3 rounded-lg bg-red-500/10 p-3 ring-1 ring-red-400/30">
+                <p className="font-medium text-red-200">
+                  {purpose.icon} Arrived at the {route.destination.kind === 'gate' ? 'gate' : 'building'}
+                </p>
+                {buildingFacts(route.building?.properties).length > 0 && (
+                  <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-slate-300">
+                    {buildingFacts(route.building?.properties).map((f) => (
+                      <div key={f.label} className="contents">
+                        <dt className="text-slate-500">{f.label}</dt>
+                        <dd className="capitalize">{f.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void resetView()}
+                  className="mt-3 w-full rounded-lg border border-white/15 px-3 py-2 font-medium text-slate-200 hover:bg-white/5"
+                >
+                  Done
+                </button>
+              </div>
             ) : ride.kind === 'run-done' ? (
               <div className="mt-3 rounded-lg bg-emerald-500/10 p-3 ring-1 ring-emerald-400/30">
                 <p className="font-medium text-emerald-300">All deliveries done ✓</p>
@@ -879,6 +967,7 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
               </div>
             ) : (
               <>
+                {!purpose.emergency && (
                 <div className="mt-3 grid grid-cols-3 gap-1 rounded-lg bg-slate-800 p-1" role="radiogroup" aria-label="Travel mode">
                   {PROFILES.map((p) => (
                     <button
@@ -896,8 +985,9 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
                     </button>
                   ))}
                 </div>
+                )}
 
-                {run ? (
+                {purpose.emergency ? null : run ? (
                   <CustomerLinks run={run} />
                 ) : (
                   <StopsPlanner
@@ -918,7 +1008,9 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
                       ? `Start: your GPS (${formatDistance(Math.round(straightLine))} away)`
                       : originSource === 'tapped'
                         ? 'Start: point you tapped'
-                        : 'Start: simulated rider'}
+                        : purpose.emergency
+                          ? 'Start: simulated vehicle'
+                          : 'Start: simulated rider'}
                     {!busy && ' · tap map to move'}
                   </span>
                   <button
@@ -950,9 +1042,13 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
                       type="button"
                       onClick={startDelivery}
                       disabled={status.kind === 'loading'}
-                      className="w-full rounded-lg bg-[#39FF14] px-3 py-2.5 text-base font-semibold text-slate-950 hover:brightness-110 disabled:opacity-60"
+                      className={`w-full rounded-lg px-3 py-2.5 text-base font-semibold hover:brightness-110 disabled:opacity-60 ${
+                        purpose.emergency ? 'bg-red-600 text-white' : 'bg-[#39FF14] text-slate-950'
+                      }`}
                     >
-                      {run
+                      {purpose.emergency
+                        ? `${purpose.icon} Start emergency navigation`
+                        : run
                         ? `Continue delivery · stop ${run.current + 1} of ${run.stops.length}`
                         : extras.length
                           ? `Start delivery · ${extras.length + 1} stops`
@@ -998,6 +1094,35 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
           </>
         )}
       </section>
+    </div>
+  );
+}
+
+/** Delivery, or an emergency crew heading to the building. */
+function PurposePicker({ value, onChange }: { value: PurposeId; onChange: (next: PurposeId) => void }) {
+  return (
+    <div className="mt-2 grid grid-cols-4 gap-1 rounded-lg bg-slate-800 p-1" role="radiogroup" aria-label="Purpose">
+      {PURPOSE_IDS.map((id) => {
+        const p = PURPOSES[id];
+        const selected = value === id;
+        return (
+          <button
+            key={id}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            onClick={() => onChange(id)}
+            className={`flex flex-col items-center rounded-md px-1 py-1.5 text-[11px] font-medium transition ${
+              selected ? (p.emergency ? 'bg-red-700 text-white' : 'bg-slate-600 text-white') : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <span aria-hidden className="text-base leading-none">
+              {p.icon}
+            </span>
+            <span className="mt-0.5">{p.label}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }

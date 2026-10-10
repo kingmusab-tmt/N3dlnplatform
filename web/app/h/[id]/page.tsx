@@ -14,7 +14,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!place) return { title: 'Link not found · TMTechEASY Delivery' };
 
   const title = `${place.claim.label} · ${place.formatted}`;
-  const description = place.claim.delivery_notes ?? 'Exact 3D delivery location on TMTechEASY Delivery.';
+  const description = place.claim.delivery_notes ?? 'Exact 3D location and gate, for deliveries and emergency responders, on TMTechEASY Delivery.';
   return {
     title,
     description,

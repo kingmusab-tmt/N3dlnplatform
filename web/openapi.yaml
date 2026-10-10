@@ -4,7 +4,10 @@ info:
   version: 0.1.0
   description: |
     Resolves Nigeria's NIPOST digital postcodes to exact building footprints, and routes
-    dispatch riders to the building.
+    delivery riders and emergency responders (fire, ambulance, police) to the building's gate.
+    Emergency call-taking and dispatch systems can use the same lookup and routing endpoints:
+    a caller's postcode becomes the building, its entrance and a road route to it.
+    The platform gives directions only; it does not alert or dispatch emergency services.
 
     **Postcodes** have 11 characters in 5 segments: State (2 letters), LGA (2 digits),
     District (3 alphanumerics), Area (2 letters), Building unit (2 digits), e.g.
@@ -36,7 +39,7 @@ tags:
   - name: Lookup
     description: Resolve postcodes and map positions to buildings.
   - name: Routing
-    description: Rider routes to a building.
+    description: Road routes to a building's gate, for riders and emergency responders.
   - name: Claims
     description: Owner-submitted home profiles and shareable links.
   - name: Dispatch

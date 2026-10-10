@@ -2,16 +2,17 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import PostcodeTry from '@/components/landing/PostcodeTry';
+import { EMERGENCY_NUMBER } from '@/lib/purpose';
 import { getDeps } from '@/lib/server/deps';
 import { getLandingStats } from '@/lib/server/stats';
 
 export const metadata: Metadata = {
   title: 'TMTechEASY Delivery · Every address, down to the gate',
   description:
-    'Turn a Nigerian digital postcode into the exact building in 3D, the gate to use, and turn-by-turn directions for riders. A map, a rider app, and an API for logistics.',
+    'Turn a Nigerian digital postcode into the exact building in 3D, the gate to use, and turn-by-turn directions, for fire crews, ambulances, police and delivery riders. A map, a navigator app and an API.',
   openGraph: {
     title: 'TMTechEASY Delivery',
-    description: 'Every Nigerian address, in 3D, down to the gate.',
+    description: 'Every Nigerian address, in 3D, down to the gate: for emergencies and deliveries.',
     images: [{ url: '/landing/hero-city.jpg', width: 1600, height: 900 }],
   },
 };
@@ -27,26 +28,57 @@ const SEGMENTS = [
   { part: '87', name: 'Building', note: 'The exact building' },
 ];
 
+const USE_CASES = [
+  {
+    icon: '🚒',
+    title: 'Fire service',
+    body: 'Crews reach the right building, not the one next to it, and see its footprint, floors and neighbours in 3D before they arrive.',
+    points: ['Route ends at the gate the owner marked', 'Building type, floors and height where mapped', 'Live re-routing by road'],
+    href: '/rider?for=fire',
+  },
+  {
+    icon: '🚑',
+    title: 'Ambulance',
+    body: 'A caller’s postcode or shared link becomes turn-by-turn directions to their gate, so paramedics don’t lose minutes searching the street.',
+    points: ['Open the caller’s link and press Ambulance', 'Arrival alert at the gate', 'Notes such as “Flat 3B, blue gate” travel with it'],
+    href: '/rider?for=ambulance',
+  },
+  {
+    icon: '🚓',
+    title: 'Police & security',
+    body: 'Patrols and estate security go straight to the reported building, with the exact entrance and the street address where it is known.',
+    points: ['Any building in the pilot area, by code or by tapping the map', 'Straight-line guidance if the network drops', 'Lite map for budget phones'],
+    href: '/rider?for=police',
+  },
+  {
+    icon: '📦',
+    title: 'Delivery & dispatch',
+    body: 'Riders follow live directions to the gate. Customers get a tracking link, and every stop ends with proof of delivery.',
+    points: ['Multi-stop runs in the best order', 'Live tracking links for customers', 'Proof of delivery by photo or code'],
+    href: '/rider',
+  },
+];
+
 const FEATURES = [
   {
     icon: '◼',
     title: 'The whole street in 3D',
-    body: 'Every mapped building is drawn in 3D on real terrain, so a rider recognises the place before they arrive. The building you search for glows.',
+    body: 'Every mapped building is drawn in 3D on real terrain, so a rider or responder recognises the place before they arrive. The building you search for glows.',
   },
   {
     icon: 'G',
     title: 'Mark your gate',
-    body: 'Owners drop a pin on the entrance riders should use: the side gate, the shop door, Flat 3B. Directions lead there, not to the middle of the roof.',
+    body: 'Owners drop a pin on the entrance visitors should use: the side gate, the shop door, Flat 3B. Directions lead there, not to the middle of the roof.',
   },
   {
     icon: '↗',
     title: 'Share it anywhere',
-    body: 'One link carries your code, building, gate and delivery notes. Send it on WhatsApp, or paste it into any checkout.',
+    body: 'One link carries your code, building, gate and notes. Send it on WhatsApp, paste it into a checkout, or give it to an ambulance or fire crew.',
   },
   {
     icon: '➤',
-    title: 'Live rider navigation',
-    body: 'Turn-by-turn directions from the rider’s GPS, with re-routing if they go off course and an arrival alert at the gate. The screen stays on.',
+    title: 'Live navigation to the gate',
+    body: 'Turn-by-turn directions from the phone’s GPS for riders and emergency crews, with re-routing, an arrival alert at the gate, and offline guidance when the signal drops.',
   },
   {
     icon: '◐',
@@ -65,27 +97,37 @@ const AUDIENCES = [
     title: 'Residents & businesses',
     points: [
       'Find your building by postcode or by tapping the map',
-      'Claim it, mark your gate and add delivery notes',
-      'Share one link instead of a paragraph of landmarks',
+      'Claim it, mark your gate and add notes for visitors',
+      'Share one link with riders, family or emergency responders',
       'Manage your places and revoke old links any time',
     ],
     cta: { label: 'Find my building', href: '/map' },
   },
   {
-    title: 'Riders & dispatch',
+    title: 'Emergency services',
     points: [
-      'Open any shared link and press Directions',
-      'Live turn-by-turn navigation to the right gate',
-      'See the building in 3D before you get there',
-      'Works by car, motorbike, bicycle or on foot',
+      'Fire, ambulance and police modes in the Navigator',
+      'Directions to the gate from a caller’s link or code',
+      'Building facts on arrival: type, floors, street',
+      'Keeps guiding when the network drops',
     ],
-    cta: { label: 'Open the Rider View', href: '/rider' },
+    cta: { label: 'Open the emergency navigator', href: '/rider?for=ambulance' },
   },
   {
-    title: 'E-commerce & logistics',
+    title: 'Riders & dispatch',
+    points: [
+      'Multi-stop runs with live customer tracking',
+      'Live turn-by-turn navigation to the right gate',
+      'Proof of delivery by photo or code',
+      'Works by car, motorbike, bicycle or on foot',
+    ],
+    cta: { label: 'Open the Navigator', href: '/rider' },
+  },
+  {
+    title: 'Businesses & control rooms',
     points: [
       'Resolve postcodes to footprints and coordinates by API',
-      'Get rider routes that end at the gate, not the street',
+      'Routes that end at the gate, for riders or response units',
       'Draw every building in your own maps with our tiles',
       'API keys, rate limits and full OpenAPI docs',
     ],
@@ -122,6 +164,7 @@ export default async function LandingPage() {
             TMTechEASY Delivery
           </Link>
           <div className="hidden items-center gap-6 text-sm text-slate-400 md:flex">
+            <a href="#use-cases" className="hover:text-white">Who it serves</a>
             <a href="#how-it-works" className="hover:text-white">How it works</a>
             <a href="#features" className="hover:text-white">Features</a>
             <a href="#business" className="hover:text-white">For business</a>
@@ -147,13 +190,14 @@ export default async function LandingPage() {
           <div aria-hidden className="absolute inset-0 bg-gradient-to-r from-[#0b0f14] via-[#0b0f14]/85 to-[#0b0f14]/20" />
           <div aria-hidden className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-[#0b0f14] to-transparent" />
           <div className="relative mx-auto max-w-6xl px-4 py-20 sm:px-6 sm:py-28 lg:py-36">
-            <p className="text-sm font-medium uppercase tracking-[0.2em] text-[#39FF14]">Built on Nigeria’s digital postcodes</p>
+            <p className="text-sm font-medium uppercase tracking-[0.2em] text-[#39FF14]">For emergencies and deliveries · Built on Nigeria’s digital postcodes</p>
             <h1 className="mt-4 max-w-3xl text-4xl font-bold leading-tight text-white sm:text-5xl lg:text-6xl">
               Every address, in 3D, <span className="text-[#39FF14]">down to the gate.</span>
             </h1>
             <p className="mt-6 max-w-2xl text-lg text-slate-300">
               Type an 11-character NIPOST postcode and see the exact building in 3D, the entrance to use, and turn-by-turn
-              directions to it. No more “opposite the blue church, after the second junction”.
+              directions to it, for the fire crew, the ambulance, the police patrol and the delivery rider. No more
+              “opposite the blue church, after the second junction”.
             </p>
             <div className="mt-8">
               <PostcodeTry example={stats.exampleCode} />
@@ -169,6 +213,63 @@ export default async function LandingPage() {
           </div>
         </section>
 
+        {/* ---- Use cases ---- */}
+        <section id="use-cases" className="mx-auto max-w-6xl px-4 pt-16 sm:px-6">
+          <h2 className="text-3xl font-bold text-white">One address system, four kinds of trip</h2>
+          <p className="mt-3 max-w-3xl text-slate-300">
+            Whoever is on the way, the hard part is the same: finding the right building and the right gate. Choose a
+            purpose in the Navigator and the directions adapt.
+          </p>
+          <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            {USE_CASES.map((u) => {
+              const emergency = u.href !== '/rider';
+              return (
+                <div
+                  key={u.title}
+                  className={`flex flex-col rounded-2xl border bg-slate-900/60 p-6 ${emergency ? 'border-red-400/25' : 'border-[#39FF14]/25'}`}
+                >
+                  <span aria-hidden className="text-3xl">
+                    {u.icon}
+                  </span>
+                  <h3 className="mt-3 text-lg font-semibold text-white">{u.title}</h3>
+                  <p className="mt-2 text-sm text-slate-300">{u.body}</p>
+                  <ul className="mt-4 flex-1 space-y-1.5 text-sm text-slate-400">
+                    {u.points.map((pt) => (
+                      <li key={pt} className="flex gap-2">
+                        <span aria-hidden className={emergency ? 'text-red-300' : 'text-[#39FF14]'}>
+                          •
+                        </span>
+                        {pt}
+                      </li>
+                    ))}
+                  </ul>
+                  <Link
+                    href={u.href}
+                    className={`mt-5 rounded-lg border px-3 py-2 text-center text-sm font-medium ${
+                      emergency
+                        ? 'border-red-400/40 text-red-200 hover:bg-red-400/10'
+                        : 'border-[#39FF14]/40 text-[#39FF14] hover:bg-[#39FF14]/10'
+                    }`}
+                  >
+                    Try {u.title.toLowerCase()} mode
+                  </Link>
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-6 rounded-xl border border-red-400/30 bg-red-950/30 px-4 py-3 text-sm text-red-100">
+            <strong>
+              In an emergency, call{' '}
+              <a href={`tel:${EMERGENCY_NUMBER}`} className="underline">
+                {EMERGENCY_NUMBER}
+              </a>
+              .
+            </strong>{' '}
+            TMTechEASY Delivery gives directions; it does not alert or dispatch emergency services. Once help is on the way,
+            share your place link with the responders so they find the right gate.
+          </p>
+        </section>
+
         {/* ---- Problem ---- */}
         <section className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
           <div className="grid gap-10 lg:grid-cols-2 lg:items-center">
@@ -176,12 +277,13 @@ export default async function LandingPage() {
               <h2 className="text-3xl font-bold text-white">The last 100 metres are the hardest</h2>
               <p className="mt-4 text-slate-300">
                 Many Nigerian addresses are described by landmarks, not numbers. Riders phone customers for directions,
-                circle the block, or wait at the wrong gate of the right building. That costs every delivery time and fuel.
+                circle the block, or wait at the wrong gate of the right building. For a delivery that costs time and fuel;
+                for an ambulance or a fire crew, those minutes can cost lives.
               </p>
               <p className="mt-4 text-slate-300">
                 NIPOST’s National Digital Postcode gives every building an 11-character code. TMTechEASY Delivery turns that
-                code into something a rider can follow: the building’s real footprint, the gate the owner marked, and a route
-                that ends there.
+                code into something anyone on the way can follow: the building’s real footprint, the gate the owner marked,
+                and a route that ends there.
               </p>
             </div>
             <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-6">
@@ -207,7 +309,7 @@ export default async function LandingPage() {
               {[
                 { n: '1', title: 'Postcode', body: 'Enter a NIPOST code in any form: FC 02 SIM BP 87, fc-02-sim-bp-87 or FC02SIMBP87 all work.' },
                 { n: '2', title: 'Building', body: 'The code resolves to the building’s real footprint, drawn in 3D among its neighbours, and checked with NIPOST.' },
-                { n: '3', title: 'Gate', body: 'Routing ends at the entrance the owner marked, with live directions for the rider and an alert on arrival.' },
+                { n: '3', title: 'Gate', body: 'Routing ends at the entrance the owner marked, with live directions for the rider or response crew and an alert on arrival.' },
               ].map((step) => (
                 <li key={step.n} className="rounded-2xl border border-white/10 bg-slate-900/60 p-6">
                   <span className="grid h-9 w-9 place-items-center rounded-full bg-[#39FF14] font-bold text-slate-950">{step.n}</span>
@@ -238,7 +340,7 @@ export default async function LandingPage() {
 
         {/* ---- Features ---- */}
         <section id="features" className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
-          <h2 className="text-3xl font-bold text-white">Everything between the postcode and the doorbell</h2>
+          <h2 className="text-3xl font-bold text-white">Everything between the postcode and the front gate</h2>
           <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {FEATURES.map((f) => (
               <div key={f.title} className="rounded-2xl border border-white/10 bg-slate-900/60 p-6">
@@ -256,13 +358,13 @@ export default async function LandingPage() {
             <div>
               <h3 className="text-2xl font-bold text-white">From a shared link to the right gate</h3>
               <p className="mt-4 text-slate-300">
-                A customer shares their place. The rider opens the link, sees the building and the gate, and presses
-                Directions. Live navigation takes them there turn by turn, and tells them when they’ve arrived.
+                Someone shares their place: with a rider for a delivery, or with an ambulance crew after calling 112. The
+                link opens the building and the gate; one tap starts live navigation, turn by turn, with an alert on arrival.
               </p>
               <ul className="mt-6 space-y-3 text-slate-300">
                 {[
-                  'Delivery notes travel with the location',
-                  'Re-routes automatically if the rider goes off course',
+                  'Notes (“Flat 3B, blue gate”) travel with the location',
+                  'Re-routes automatically if the driver goes off course',
                   'Owners can revoke a link and issue a new one',
                 ].map((t) => (
                   <li key={t} className="flex gap-3">
@@ -273,7 +375,7 @@ export default async function LandingPage() {
               </ul>
             </div>
             <div className="flex justify-center gap-4 sm:gap-6">
-              <PhoneShot src="/landing/phone-share.jpg" alt="A shared delivery location with the owner's gate and delivery notes" />
+              <PhoneShot src="/landing/phone-share.jpg" alt="A shared location with the owner's gate and notes" />
               <PhoneShot
                 src="/landing/phone-navigation.jpg"
                 alt="Live rider navigation with the next turn and the distance left"
@@ -287,7 +389,7 @@ export default async function LandingPage() {
         <section className="border-y border-white/5 bg-slate-950/50">
           <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
             <h2 className="text-3xl font-bold text-white">Who it’s for</h2>
-            <div className="mt-10 grid gap-5 lg:grid-cols-3">
+            <div className="mt-10 grid gap-5 md:grid-cols-2">
               {AUDIENCES.map((a) => (
                 <div key={a.title} className="flex flex-col rounded-2xl border border-white/10 bg-slate-900/60 p-6">
                   <h3 className="text-xl font-semibold text-white">{a.title}</h3>
@@ -315,10 +417,11 @@ export default async function LandingPage() {
         <section id="business" className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
           <div className="grid gap-10 lg:grid-cols-2">
             <div>
-              <h2 className="text-3xl font-bold text-white">An API for logistics and e-commerce</h2>
+              <h2 className="text-3xl font-bold text-white">An API for logistics, e-commerce and control rooms</h2>
               <p className="mt-4 text-slate-300">
-                Plug NIPOST postcodes into your checkout and dispatch software. One request turns a code into the building’s
-                footprint and coordinates; another gives your rider a route that ends at the gate.
+                Plug NIPOST postcodes into your checkout, dispatch or emergency call-taking software. One request turns a
+                code into the building’s footprint and coordinates; another gives your rider or response unit a route that
+                ends at the gate.
               </p>
               <dl className="mt-6 grid gap-4 sm:grid-cols-2">
                 {[
@@ -410,7 +513,8 @@ export default async function LandingPage() {
           </div>
           <div className="grid grid-cols-2 gap-x-10 gap-y-2">
             <Link href="/map" className="hover:text-slate-300">3D map</Link>
-            <Link href="/rider" className="hover:text-slate-300">Rider View</Link>
+            <Link href="/rider" className="hover:text-slate-300">Navigator</Link>
+            <Link href="/rider?for=ambulance" className="hover:text-slate-300">Emergency navigator</Link>
             <Link href="/account" className="hover:text-slate-300">My places</Link>
             <Link href="/login" className="hover:text-slate-300">Sign in</Link>
             <Link href="/api/v1/docs" className="hover:text-slate-300">API docs</Link>
