@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: NIPOST 3D Navigation API
+  title: TMTechEASY Delivery API
   version: 0.1.0
   description: |
     Resolves Nigeria's NIPOST digital postcodes to exact building footprints, and routes

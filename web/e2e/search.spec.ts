@@ -29,5 +29,5 @@ test('explains malformed and unknown postcodes', async ({ page }) => {
 
 test('serves the API docs', async ({ page }) => {
   await page.goto('/api/v1/docs');
-  await expect(page.getByText('NIPOST 3D Navigation API').first()).toBeVisible();
+  await expect(page.getByText('TMTechEASY Delivery API').first()).toBeVisible();
 });

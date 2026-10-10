@@ -1,4 +1,6 @@
-# NIPOST 3D Logistics & Navigation Platform (MVP)
+# TMTechEASY Delivery (MVP)
+
+3D logistics and navigation built on Nigeria's NIPOST digital postcodes. MVP by Triple Multipurpose Technology.
 
 Resolves a Nigerian digital postcode (e.g. `FC 02 SIM BP 87`) to its exact building footprint, flies a 3D Mapbox camera to it, and routes dispatch riders to the building.
 

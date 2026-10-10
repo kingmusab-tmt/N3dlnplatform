@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import NavigationMap from '@/components/NavigationMap';
 
-export const metadata: Metadata = { title: 'Map · NIPOST 3D Navigator' };
+export const metadata: Metadata = { title: 'Map · TMTechEASY Delivery' };
 
 // /map?code=FC02SIMBP87 opens straight onto that building (used after signing in to claim it).
 // /map?code=…&gate=<claim id> opens it to mark or move that claim's gate (from My places).

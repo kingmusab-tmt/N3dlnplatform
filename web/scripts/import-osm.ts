@@ -71,7 +71,7 @@ async function fetchOverpass(attempts = 4): Promise<OverpassElement[]> {
     try {
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'nipost-3d-navigation-mvp/0.1' },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'tmtecheasy-delivery-mvp/0.1' },
         body: new URLSearchParams({ data: buildOverpassQuery(bbox) }),
         signal: AbortSignal.timeout(200_000),
       });

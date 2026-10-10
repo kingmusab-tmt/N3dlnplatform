@@ -6,11 +6,11 @@ import { getDeps } from '@/lib/server/deps';
 import { getLandingStats } from '@/lib/server/stats';
 
 export const metadata: Metadata = {
-  title: 'NIPOST 3D Navigator · Every address, down to the gate',
+  title: 'TMTechEASY Delivery · Every address, down to the gate',
   description:
     'Turn a Nigerian digital postcode into the exact building in 3D, the gate to use, and turn-by-turn directions for riders. A map, a rider app, and an API for logistics.',
   openGraph: {
-    title: 'NIPOST 3D Navigator',
+    title: 'TMTechEASY Delivery',
     description: 'Every Nigerian address, in 3D, down to the gate.',
     images: [{ url: '/landing/hero-city.jpg', width: 1600, height: 900 }],
   },
@@ -119,7 +119,7 @@ export default async function LandingPage() {
         <nav className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <Link href="/" className="flex items-center gap-2 font-semibold text-white">
             <span aria-hidden className="h-3 w-3 rounded-sm bg-[#39FF14] shadow-[0_0_12px_#39FF14]" />
-            NIPOST 3D Navigator
+            TMTechEASY Delivery
           </Link>
           <div className="hidden items-center gap-6 text-sm text-slate-400 md:flex">
             <a href="#how-it-works" className="hover:text-white">How it works</a>
@@ -179,7 +179,7 @@ export default async function LandingPage() {
                 circle the block, or wait at the wrong gate of the right building. That costs every delivery time and fuel.
               </p>
               <p className="mt-4 text-slate-300">
-                NIPOST’s National Digital Postcode gives every building an 11-character code. NIPOST 3D Navigator turns that
+                NIPOST’s National Digital Postcode gives every building an 11-character code. TMTechEASY Delivery turns that
                 code into something a rider can follow: the building’s real footprint, the gate the owner marked, and a route
                 that ends there.
               </p>
@@ -395,13 +395,18 @@ export default async function LandingPage() {
           <div className="max-w-md">
             <p className="flex items-center gap-2 font-semibold text-slate-300">
               <span aria-hidden className="h-2.5 w-2.5 rounded-sm bg-[#39FF14]" />
-              NIPOST 3D Navigator
+              TMTechEASY Delivery
             </p>
             <p className="mt-2">
               An independent platform built on Nigeria’s National Digital Postcode system. It is not operated by or
               affiliated with NIPOST. Pilot postcodes are simulated; claims are submitted by users and are unverified.
             </p>
             <p className="mt-2">Map data © Mapbox © OpenStreetMap contributors.</p>
+            <p className="mt-4 text-slate-400">
+              MVP by <span className="font-medium text-slate-200">Triple Multipurpose Technology</span>
+              <br />
+              CEO: Engr. Musab Mubaraq Mburaimoh
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-x-10 gap-y-2">
             <Link href="/map" className="hover:text-slate-300">3D map</Link>

@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import RiderView from '@/components/RiderView';
 
 export const metadata: Metadata = {
-  title: 'Rider View · NIPOST 3D Navigator',
+  title: 'Rider View · TMTechEASY Delivery',
   description: 'Sandbox showing how a dispatch rider app routes to a NIPOST-coded building.',
 };
 

@@ -11,10 +11,10 @@ const getPlace = cache(fetchSharedPlace);
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const place = await getPlace((await params).id);
-  if (!place) return { title: 'Link not found · NIPOST 3D Navigator' };
+  if (!place) return { title: 'Link not found · TMTechEASY Delivery' };
 
   const title = `${place.claim.label} · ${place.formatted}`;
-  const description = place.claim.delivery_notes ?? 'Exact 3D delivery location on NIPOST 3D Navigator.';
+  const description = place.claim.delivery_notes ?? 'Exact 3D delivery location on TMTechEASY Delivery.';
   return {
     title,
     description,
