@@ -53,3 +53,35 @@ export function boundsOf(points: LngLat[]): [LngLat, LngLat] {
   }
   return [[minLng, minLat], [maxLng, maxLat]];
 }
+
+/**
+ * Closest point on a measured line to `p`: how far along the line it is and
+ * how far `p` is from it, in metres. Segments are projected in a local flat
+ * approximation, which is accurate to well under a metre at street scale.
+ */
+export function nearestOnLine(line: ReturnType<typeof measureLine>, p: LngLat): { along: number; offset: number; point: LngLat } {
+  const { coords, cumulative } = line;
+  if (coords.length < 2) return { along: 0, offset: coords[0] ? distanceMetres(coords[0], p) : Infinity, point: coords[0] ?? p };
+
+  const mx = Math.cos(p[1] * rad) * 111_320; // metres per degree of longitude here
+  const my = 110_540; // metres per degree of latitude
+  let best = { along: 0, offset: Infinity, point: coords[0] };
+  for (let i = 1; i < coords.length; i++) {
+    const a = coords[i - 1];
+    const b = coords[i];
+    const ax = (a[0] - p[0]) * mx, ay = (a[1] - p[1]) * my;
+    const bx = (b[0] - p[0]) * mx, by = (b[1] - p[1]) * my;
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 > 0 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
+    const offset = Math.hypot(ax + t * dx, ay + t * dy);
+    if (offset < best.offset) {
+      best = {
+        offset,
+        along: cumulative[i - 1] + t * (cumulative[i] - cumulative[i - 1]),
+        point: [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])],
+      };
+    }
+  }
+  return best;
+}

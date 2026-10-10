@@ -3,7 +3,7 @@
 import type { GeoJSONSource, Map as MapboxMap, Marker } from 'mapbox-gl';
 import Link from 'next/link';
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import { boundsOf, distanceMetres, measureLine, pointAlong, type LngLat } from '@/lib/geo';
+import { bearing, boundsOf, distanceMetres, measureLine, pointAlong, type LngLat } from '@/lib/geo';
 import {
   MAPBOX_TOKEN,
   NEON_GREEN,
@@ -13,7 +13,9 @@ import {
   setHighlightedBuilding,
   setupScene,
 } from '@/lib/map';
+import { buildNavPlan, navProgress, type NavPlan } from '@/lib/navigation';
 import { normalizePostcode, type NavigateResponse, type RouteProfile, type RouteResponse } from '@/lib/postcode';
+import { createVehicleMarker, type VehicleMarker } from '@/lib/vehicles';
 
 const ROUTE_SOURCE = 'rider-route';
 const LAST_MILE_SOURCE = 'rider-last-mile';
@@ -26,14 +28,38 @@ const PROFILES: { value: RouteProfile; label: string }[] = [
   { value: 'walking', label: 'Walk' },
 ];
 
+// Live navigation: wait this long between automatic re-routes, after this many off-route fixes.
+const REROUTE_COOLDOWN_MS = 15_000;
+const OFF_ROUTE_FIXES = 3;
+// Further than this from the delivery at start, warn that the route will be long.
+const FAR_AWAY_M = 50_000;
+
 type OriginSource = 'simulated' | 'tapped' | 'gps';
 type Status = { kind: 'idle' } | { kind: 'loading' } | { kind: 'error'; message: string } | { kind: 'ready' };
-type Ride = { kind: 'idle' } | { kind: 'riding'; remaining_m: number } | { kind: 'arrived' };
+type Ride =
+  | { kind: 'idle' }
+  | { kind: 'simulating'; remaining_m: number }
+  | { kind: 'simulated' }
+  | { kind: 'locating' }
+  | { kind: 'navigating'; remaining_m: number; next: { instruction: string; in_m: number } | null; accuracy_m: number; rerouting: boolean }
+  | { kind: 'delivered' };
 
 /** Pretend rider start ~1.5 km north-west of the destination, for demos away from Abuja. */
 function simulatedStart([lng, lat]: LngLat): LngLat {
   return [lng - 0.0105, lat + 0.0085];
 }
+
+/** Live-navigation state that callbacks (GPS, animation) read without re-rendering. */
+type NavState = {
+  watchId: number | null;
+  plan: NavPlan | null;
+  offRouteFixes: number;
+  lastReroute: number;
+  last: LngLat | null;
+  heading: number;
+  follow: boolean;
+  wakeLock: { release: () => Promise<void> } | null;
+};
 
 /**
  * @param claimId From a shared link: routes to the gate its owner marked, but
@@ -42,10 +68,13 @@ function simulatedStart([lng, lat]: LngLat): LngLat {
 export default function RiderView({ initialCode, claimId }: { initialCode?: string; claimId?: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapReady = useRef<Promise<MapboxMap> | null>(null);
-  const riderMarker = useRef<Marker | null>(null);
+  const vehicle = useRef<VehicleMarker | null>(null);
   const destMarker = useRef<Marker | null>(null);
   const animFrame = useRef<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const nav = useRef<NavState>({
+    watchId: null, plan: null, offRouteFixes: 0, lastReroute: 0, last: null, heading: 0, follow: true, wakeLock: null,
+  });
 
   const [query, setQuery] = useState(initialCode ?? '');
   const [code, setCode] = useState<string | null>(null);
@@ -55,6 +84,10 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
   const [route, setRoute] = useState<RouteResponse | null>(null);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const [ride, setRide] = useState<Ride>({ kind: 'idle' });
+  const [following, setFollowing] = useState(true);
+  const [gpsWarning, setGpsWarning] = useState<string | null>(null);
+
+  const busy = ride.kind === 'simulating' || ride.kind === 'locating' || ride.kind === 'navigating';
 
   // ---- Map ------------------------------------------------------------------
   useEffect(() => {
@@ -79,6 +112,13 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
           setupScene(map);
           addRouteLayers(map);
           map.on('click', (e) => mapClickRef.current([e.lngLat.lng, e.lngLat.lat]));
+          // Panning by hand during navigation pauses the follow camera.
+          map.on('dragstart', () => {
+            if (nav.current.watchId !== null) {
+              nav.current.follow = false;
+              setFollowing(false);
+            }
+          });
           resolve(map);
         });
       });
@@ -88,8 +128,10 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
       cancelled = true;
       abortRef.current?.abort();
       if (animFrame.current) cancelAnimationFrame(animFrame.current);
+      endNavigation();
       map?.remove();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Load the code passed in the URL (?code=…) once.
@@ -111,7 +153,7 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
       setStatus({ kind: 'error', message: 'Enter an 11-character NIPOST code, e.g. FC 02 SIM BP 87.' });
       return;
     }
-    stopRide();
+    stopEverything();
     setStatus({ kind: 'loading' });
     try {
       const res = await fetch(`/api/v1/navigate/${encodeURIComponent(normalized)}`);
@@ -131,14 +173,16 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
     }
   }
 
-  async function fetchRoute(forCode: string, from: LngLat, withProfile: RouteProfile) {
+  /** Fetches and draws a route; returns it, or null on failure. `fit` frames the whole route. */
+  async function fetchRoute(forCode: string, from: LngLat, withProfile: RouteProfile, fit = true) {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     setStatus({ kind: 'loading' });
 
     try {
-      const claimParam = claimId && initialCode && normalizePostcode(initialCode) === forCode ? `&claim=${encodeURIComponent(claimId)}` : '';
+      const claimParam =
+        claimId && initialCode && normalizePostcode(initialCode) === forCode ? `&claim=${encodeURIComponent(claimId)}` : '';
       const url = `/api/v1/navigate/${forCode}/route?from=${from[0].toFixed(6)},${from[1].toFixed(6)}&profile=${withProfile}${claimParam}`;
       const res = await fetch(url, { signal: controller.signal });
       const body = await res.json().catch(() => null);
@@ -148,14 +192,16 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
       setRoute(result);
       setStatus({ kind: 'ready' });
       const map = await mapReady.current;
-      if (map && !controller.signal.aborted) await drawRoute(map, result);
+      if (map && !controller.signal.aborted) await drawRoute(map, result, fit);
+      return result;
     } catch (err) {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) return null;
       setStatus({ kind: 'error', message: err instanceof Error ? err.message : 'Routing failed.' });
+      return null;
     }
   }
 
-  async function drawRoute(map: MapboxMap, result: RouteResponse) {
+  async function drawRoute(map: MapboxMap, result: RouteResponse, fit: boolean) {
     setHighlightedBuilding(map, result);
     (map.getSource(ROUTE_SOURCE) as GeoJSONSource).setData({ type: 'Feature', properties: {}, geometry: result.route.geometry });
     (map.getSource(LAST_MILE_SOURCE) as GeoJSONSource).setData(
@@ -163,12 +209,19 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
     );
 
     const { default: mapboxgl } = await import('mapbox-gl');
-    riderMarker.current ??= new mapboxgl.Marker({ element: createRiderElement() });
-    riderMarker.current.setLngLat(result.origin).addTo(map);
+    // One icon per travel mode: car, bicycle or person.
+    if (vehicle.current?.profile !== result.profile) {
+      vehicle.current?.marker.remove();
+      vehicle.current = createVehicleMarker(mapboxgl, result.profile);
+    }
+    const coords = result.route.geometry.coordinates;
+    vehicle.current.marker.setLngLat(result.origin).addTo(map);
+    if (coords.length > 1) vehicle.current.setHeading(bearing(coords[0], coords[1]));
+
     destMarker.current ??= new mapboxgl.Marker({ element: createPinElement(), anchor: 'bottom' });
     destMarker.current.setLngLat(result.destination.point).addTo(map);
 
-    fitRoute(map, result);
+    if (fit) fitRoute(map, result);
   }
 
   function fitRoute(map: MapboxMap, result: RouteResponse) {
@@ -184,7 +237,7 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
 
   // ---- Rider origin ---------------------------------------------------------
   function handleMapClick(point: LngLat) {
-    if (!code || ride.kind === 'riding') return;
+    if (!code || busy) return;
     setOrigin(point);
     setOriginSource('tapped');
     void fetchRoute(code, point, profile);
@@ -214,16 +267,16 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
   function changeProfile(next: RouteProfile) {
     setProfile(next);
     if (code && origin) {
-      stopRide();
+      stopEverything();
       void fetchRoute(code, origin, next);
     }
   }
 
-  // ---- Ride simulation ------------------------------------------------------
-  async function startRide() {
+  // ---- Simulated ride -------------------------------------------------------
+  async function startSimulation() {
     const map = await mapReady.current;
     if (!map || !route) return;
-    stopRide();
+    stopEverything();
 
     const coords: LngLat[] = [...route.route.geometry.coordinates];
     if (route.lastMile) coords.push(route.destination.point);
@@ -237,40 +290,170 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
       const t = Math.min(1, (now - startedAt) / durationMs);
       const travelled = t * line.length;
       const { point, heading: target } = pointAlong(line, travelled);
-      // Ease the camera heading so short zig-zag segments don't make it spin.
-      const delta = ((target - heading + 540) % 360) - 180;
-      heading = (heading + delta * 0.08 + 360) % 360;
+      // Ease the heading so short zig-zag segments don't make the camera spin.
+      heading = easeHeading(heading, target, 0.08);
 
-      riderMarker.current?.setLngLat(point);
+      vehicle.current?.marker.setLngLat(point);
+      vehicle.current?.setHeading(heading);
       map.jumpTo({ center: point, bearing: heading, pitch: 60, zoom: 17.3 });
 
       if (now - lastUiUpdate > 200) {
         lastUiUpdate = now;
-        setRide({ kind: 'riding', remaining_m: Math.round(line.length - travelled) });
+        setRide({ kind: 'simulating', remaining_m: Math.round(line.length - travelled) });
       }
       if (t < 1) {
         animFrame.current = requestAnimationFrame(frame);
       } else {
         animFrame.current = null;
-        setRide({ kind: 'arrived' });
+        setRide({ kind: 'simulated' });
         map.flyTo({ ...buildingCamera(route.center), speed: 0.8, essential: true });
       }
     };
-    setRide({ kind: 'riding', remaining_m: Math.round(line.length) });
+    setRide({ kind: 'simulating', remaining_m: Math.round(line.length) });
     animFrame.current = requestAnimationFrame(frame);
   }
 
-  function stopRide() {
+  // ---- Live delivery navigation ---------------------------------------------
+  async function startDelivery() {
+    if (!code) return;
+    if (!navigator.geolocation) {
+      setStatus({ kind: 'error', message: 'This browser has no location access, so live navigation is unavailable.' });
+      return;
+    }
+    stopEverything();
+    setRide({ kind: 'locating' });
+    nav.current = { ...nav.current, plan: null, offRouteFixes: 0, lastReroute: 0, last: null, follow: true };
+    setFollowing(true);
+
+    // Keep the screen on while riding (where supported).
+    try {
+      nav.current.wakeLock = (await (navigator as any).wakeLock?.request('screen')) ?? null;
+    } catch {
+      nav.current.wakeLock = null;
+    }
+
+    const forCode = code;
+    const forProfile = profile;
+    nav.current.watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        setGpsWarning(null);
+        void onFix(pos, forCode, forProfile);
+      },
+      (err) => {
+        // Only a denied permission is fatal. Timeouts (e.g. standing still at a
+        // junction) and lost signal are transient: the watch keeps running.
+        if (err.code === err.PERMISSION_DENIED) {
+          endNavigation();
+          setRide({ kind: 'idle' });
+          setStatus({ kind: 'error', message: 'Location permission was denied. Allow location access to navigate.' });
+        } else {
+          setGpsWarning('Weak GPS signal: waiting for your position…');
+        }
+      },
+      { enableHighAccuracy: true, maximumAge: 2_000, timeout: 30_000 },
+    );
+  }
+
+  async function onFix(pos: GeolocationPosition, forCode: string, forProfile: RouteProfile) {
+    const map = await mapReady.current;
+    const state = nav.current;
+    if (!map || state.watchId === null) return;
+    const point: LngLat = [pos.coords.longitude, pos.coords.latitude];
+    const accuracy = pos.coords.accuracy ?? 0;
+
+    // First fix: route from where the rider actually is.
+    if (!state.plan) {
+      if (state.lastReroute > 0) return; // first route still loading
+      state.lastReroute = Date.now();
+      setOrigin(point);
+      setOriginSource('gps');
+      const first = await fetchRoute(forCode, point, forProfile, false);
+      if (!first) {
+        state.lastReroute = 0; // let the next fix try again
+        return;
+      }
+      if (nav.current.watchId === null) return;
+      state.plan = buildNavPlan(first);
+      const far = distanceMetres(point, first.destination.point);
+      if (far > FAR_AWAY_M) {
+        setStatus({ kind: 'error', message: `You're ${Math.round(far / 1000)} km away; the route is long, but navigation will work.` });
+      }
+    }
+
+    // Heading: the device's own when moving, else the direction of travel.
+    const gpsHeading = pos.coords.heading;
+    if (gpsHeading != null && !Number.isNaN(gpsHeading) && (pos.coords.speed ?? 0) > 1) {
+      state.heading = gpsHeading;
+    } else if (state.last && distanceMetres(state.last, point) > 3) {
+      state.heading = bearing(state.last, point);
+    }
+    state.last = point;
+
+    vehicle.current?.marker.setLngLat(point);
+    vehicle.current?.setHeading(state.heading);
+    if (state.follow) map.easeTo({ center: point, bearing: state.heading, pitch: 60, zoom: 17.5, duration: 900 });
+
+    const progress = navProgress(state.plan!, point, accuracy);
+
+    if (progress.arrived) {
+      endNavigation();
+      setRide({ kind: 'delivered' });
+      map.flyTo({ ...buildingCamera(state.plan!.destination), speed: 0.8, essential: true });
+      return;
+    }
+
+    // Re-route after a few consecutive off-route fixes, not on one GPS blip.
+    state.offRouteFixes = progress.offRoute ? state.offRouteFixes + 1 : 0;
+    let rerouting = false;
+    if (state.offRouteFixes >= OFF_ROUTE_FIXES && Date.now() - state.lastReroute > REROUTE_COOLDOWN_MS) {
+      state.offRouteFixes = 0;
+      state.lastReroute = Date.now();
+      rerouting = true;
+      void fetchRoute(forCode, point, forProfile, false).then((fresh) => {
+        if (fresh && nav.current.watchId !== null) nav.current.plan = buildNavPlan(fresh);
+      });
+    }
+
+    setRide({
+      kind: 'navigating',
+      remaining_m: Math.round(progress.remaining_m),
+      next: progress.next,
+      accuracy_m: Math.round(accuracy),
+      rerouting,
+    });
+  }
+
+  async function recenter() {
+    nav.current.follow = true;
+    setFollowing(true);
+    const map = await mapReady.current;
+    if (map && nav.current.last) {
+      map.easeTo({ center: nav.current.last, bearing: nav.current.heading, pitch: 60, zoom: 17.5, duration: 600 });
+    }
+  }
+
+  /** Stops GPS tracking and releases the screen wake lock. */
+  function endNavigation() {
+    const state = nav.current;
+    if (state.watchId !== null) navigator.geolocation.clearWatch(state.watchId);
+    state.watchId = null;
+    void state.wakeLock?.release().catch(() => {});
+    state.wakeLock = null;
+  }
+
+  function stopEverything() {
     if (animFrame.current) cancelAnimationFrame(animFrame.current);
     animFrame.current = null;
+    endNavigation();
+    setGpsWarning(null);
     setRide({ kind: 'idle' });
   }
 
   async function resetView() {
-    stopRide();
+    stopEverything();
     const map = await mapReady.current;
     if (map && route) {
-      riderMarker.current?.setLngLat(route.origin);
+      vehicle.current?.marker.setLngLat(route.origin);
       fitRoute(map, route);
     }
   }
@@ -279,6 +462,9 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
   const placeName =
     typeof route?.building?.properties.name === 'string' ? route.building.properties.name : route?.formatted;
   const straightLine = route ? distanceMetres(route.origin, route.destination.point) : 0;
+  // Remaining time at the route's own average speed.
+  const etaFor = (remaining_m: number) =>
+    route && route.route.distance_m > 0 ? (remaining_m / route.route.distance_m) * route.route.duration_s : 0;
 
   return (
     <div className="relative h-full w-full">
@@ -291,39 +477,55 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
         </div>
       )}
 
-      {/* Destination search */}
-      <form
-        onSubmit={handleSubmit}
-        className="absolute left-3 right-14 top-3 flex gap-2 rounded-xl border border-white/10 bg-slate-900/90 p-2 shadow-2xl backdrop-blur sm:right-auto sm:w-[400px]"
-      >
-        <Link href="/" aria-label="Back to search" className="grid place-items-center px-2 text-slate-400 hover:text-slate-100">
-          ←
-        </Link>
-        <label htmlFor="rider-code" className="sr-only">
-          Destination postcode
-        </label>
-        <input
-          id="rider-code"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Deliver to… FC 02 SIM BP 87"
-          autoComplete="off"
-          spellCheck={false}
-          maxLength={24}
-          className="min-w-0 flex-1 rounded-lg bg-slate-800 px-3 py-2 font-mono uppercase tracking-wider text-slate-100 placeholder:normal-case placeholder:tracking-normal placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#39FF14]"
-        />
-        <button
-          type="submit"
-          disabled={status.kind === 'loading'}
-          className="rounded-lg bg-[#39FF14] px-3 py-2 font-semibold text-slate-950 hover:brightness-110 disabled:opacity-60"
+      {/* Destination search, or the next-turn banner while navigating */}
+      {ride.kind === 'navigating' ? (
+        <div className="absolute left-3 right-14 top-3 rounded-xl border border-white/10 bg-emerald-950/95 p-3 shadow-2xl backdrop-blur sm:right-auto sm:w-[400px]">
+          {ride.next ? (
+            <>
+              <p className="text-2xl font-semibold text-white">{formatDistance(ride.next.in_m)}</p>
+              <p className="text-base text-emerald-100">{ride.next.instruction}</p>
+            </>
+          ) : (
+            <p className="text-base text-emerald-100">Continue to the destination</p>
+          )}
+        </div>
+      ) : (
+        <form
+          onSubmit={handleSubmit}
+          className="absolute left-3 right-14 top-3 flex gap-2 rounded-xl border border-white/10 bg-slate-900/90 p-2 shadow-2xl backdrop-blur sm:right-auto sm:w-[400px]"
         >
-          Route
-        </button>
-      </form>
+          <Link href="/" aria-label="Back to search" className="grid place-items-center px-2 text-slate-400 hover:text-slate-100">
+            ←
+          </Link>
+          <label htmlFor="rider-code" className="sr-only">
+            Destination postcode
+          </label>
+          <input
+            id="rider-code"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Deliver to… FC 02 SIM BP 87"
+            autoComplete="off"
+            spellCheck={false}
+            maxLength={24}
+            disabled={busy}
+            className="min-w-0 flex-1 rounded-lg bg-slate-800 px-3 py-2 font-mono uppercase tracking-wider text-slate-100 placeholder:normal-case placeholder:tracking-normal placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#39FF14]"
+          />
+          <button
+            type="submit"
+            disabled={status.kind === 'loading' || busy}
+            className="rounded-lg bg-[#39FF14] px-3 py-2 font-semibold text-slate-950 hover:brightness-110 disabled:opacity-60"
+          >
+            Route
+          </button>
+        </form>
+      )}
 
       {/* Bottom sheet (left panel on desktop) */}
       <section className="absolute inset-x-0 bottom-0 max-h-[55dvh] overflow-y-auto rounded-t-2xl border border-white/10 bg-slate-900/95 p-4 text-sm shadow-2xl backdrop-blur sm:inset-x-auto sm:bottom-auto sm:left-3 sm:top-20 sm:max-h-[calc(100dvh-6rem)] sm:w-[400px] sm:rounded-2xl">
-        <p className="text-xs uppercase tracking-wider text-slate-500">Rider view · sandbox</p>
+        <p className="text-xs uppercase tracking-wider text-slate-500">
+          {ride.kind === 'navigating' || ride.kind === 'locating' ? 'Delivering · live GPS' : 'Rider view'}
+        </p>
 
         {status.kind === 'error' && (
           <p role="alert" className="mt-2 rounded-lg bg-red-950/90 px-3 py-2 text-red-200">
@@ -335,17 +537,25 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
           <p className="mt-2 text-slate-400">
             {status.kind === 'loading'
               ? 'Planning route…'
-              : 'Enter a destination code to see how a dispatch rider would be routed to the building.'}
+              : 'Enter a destination code to route a delivery to the building.'}
           </p>
         )}
 
         {route && (
           <>
-            <div className="mt-2 flex items-baseline gap-3">
-              <span className="text-3xl font-semibold text-slate-100">{formatDuration(route.route.duration_s)}</span>
-              <span className="text-slate-400">{formatDistance(route.route.distance_m)}</span>
-              {status.kind === 'loading' && <span className="text-xs text-slate-500">updating…</span>}
-            </div>
+            {ride.kind === 'navigating' ? (
+              <div className="mt-2 flex items-baseline gap-3">
+                <span className="text-3xl font-semibold text-slate-100">{formatDuration(etaFor(ride.remaining_m))}</span>
+                <span className="text-slate-400">{formatDistance(ride.remaining_m)} left</span>
+                {ride.rerouting && <span className="text-xs text-amber-300">re-routing…</span>}
+              </div>
+            ) : (
+              <div className="mt-2 flex items-baseline gap-3">
+                <span className="text-3xl font-semibold text-slate-100">{formatDuration(route.route.duration_s)}</span>
+                <span className="text-slate-400">{formatDistance(route.route.distance_m)}</span>
+                {status.kind === 'loading' && <span className="text-xs text-slate-500">updating…</span>}
+              </div>
+            )}
             <p className="mt-1 text-slate-200">
               to <span className="font-medium">{placeName}</span>{' '}
               <span className="font-mono text-[#39FF14]">{route.formatted}</span>
@@ -363,86 +573,158 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
               </p>
             )}
 
-            <div className="mt-3 grid grid-cols-3 gap-1 rounded-lg bg-slate-800 p-1" role="radiogroup" aria-label="Travel mode">
-              {PROFILES.map((p) => (
-                <button
-                  key={p.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={profile === p.value}
-                  onClick={() => changeProfile(p.value)}
-                  disabled={ride.kind === 'riding'}
-                  className={`rounded-md px-2 py-1.5 text-xs font-medium transition ${
-                    profile === p.value ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="mt-3 flex items-center justify-between gap-2 text-xs text-slate-400">
-              <span>
-                <span className="mr-1 inline-block h-2 w-2 rounded-full bg-sky-400 align-middle" />
-                {originSource === 'gps'
-                  ? `Start: your GPS (${formatDistance(Math.round(straightLine))} away)`
-                  : originSource === 'tapped'
-                    ? 'Start: point you tapped'
-                    : 'Start: simulated rider'}
-                {ride.kind !== 'riding' && ' · tap map to move'}
-              </span>
-              <button type="button" onClick={locateWithGps} disabled={ride.kind === 'riding'} className="shrink-0 text-sky-300 hover:text-sky-200 disabled:opacity-50">
-                Use my GPS
-              </button>
-            </div>
-
-            <div className="mt-3 flex gap-2">
-              {ride.kind === 'riding' ? (
-                <>
-                  <div className="flex-1 rounded-lg bg-slate-800 px-3 py-2 text-slate-200">
-                    {formatDistance(ride.remaining_m)} to go
-                  </div>
-                  <button type="button" onClick={resetView} className="rounded-lg border border-white/15 px-4 py-2 text-slate-200 hover:bg-white/5">
-                    Stop
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={startRide}
-                    disabled={status.kind === 'loading'}
-                    className="flex-1 rounded-lg bg-[#39FF14] px-3 py-2 font-semibold text-slate-950 hover:brightness-110 disabled:opacity-60"
-                  >
-                    {ride.kind === 'arrived' ? 'Arrived ✓ · Replay' : 'Simulate ride'}
-                  </button>
-                  {ride.kind === 'arrived' && (
-                    <button type="button" onClick={resetView} className="rounded-lg border border-white/15 px-4 py-2 text-slate-200 hover:bg-white/5">
-                      Overview
+            {ride.kind === 'navigating' || ride.kind === 'locating' ? (
+              <>
+                <p className={`mt-3 text-xs ${gpsWarning ? 'text-amber-300' : 'text-slate-400'}`}>
+                  {gpsWarning ??
+                    (ride.kind === 'locating'
+                      ? 'Getting your location…'
+                      : `GPS accuracy ±${ride.accuracy_m} m · screen stays on while navigating`)}
+                </p>
+                <div className="mt-3 flex gap-2">
+                  {!following && (
+                    <button
+                      type="button"
+                      onClick={recenter}
+                      className="flex-1 rounded-lg border border-sky-400/40 px-3 py-2 font-medium text-sky-300 hover:bg-sky-400/10"
+                    >
+                      Re-center
                     </button>
                   )}
-                </>
-              )}
-            </div>
-
-            {route.route.steps.length > 0 && (
-              <details className="mt-3">
-                <summary className="cursor-pointer text-slate-300">Turn-by-turn ({route.route.steps.length} steps)</summary>
-                <ol className="mt-2 space-y-1.5 text-slate-300">
-                  {route.route.steps.map((s, i) => (
-                    <li key={i} className="flex justify-between gap-3">
-                      <span>{s.instruction}</span>
-                      {s.distance_m > 0 && <span className="shrink-0 text-slate-500">{formatDistance(s.distance_m)}</span>}
-                    </li>
+                  <button
+                    type="button"
+                    onClick={resetView}
+                    className="flex-1 rounded-lg border border-white/15 px-4 py-2 text-slate-200 hover:bg-white/5"
+                  >
+                    End delivery
+                  </button>
+                </div>
+              </>
+            ) : ride.kind === 'delivered' ? (
+              <div className="mt-3 rounded-lg bg-emerald-500/10 p-3 ring-1 ring-emerald-400/30">
+                <p className="font-medium text-emerald-300">You've arrived ✓</p>
+                <p className="mt-1 text-xs text-slate-400">
+                  You're at the {route.destination.kind === 'gate' ? 'gate' : 'building'}. Hand over the delivery.
+                </p>
+                <button
+                  type="button"
+                  onClick={resetView}
+                  className="mt-2 w-full rounded-lg bg-[#39FF14] px-3 py-2 font-semibold text-slate-950 hover:brightness-110"
+                >
+                  Done
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="mt-3 grid grid-cols-3 gap-1 rounded-lg bg-slate-800 p-1" role="radiogroup" aria-label="Travel mode">
+                  {PROFILES.map((p) => (
+                    <button
+                      key={p.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={profile === p.value}
+                      onClick={() => changeProfile(p.value)}
+                      disabled={busy}
+                      className={`rounded-md px-2 py-1.5 text-xs font-medium transition ${
+                        profile === p.value ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
                   ))}
-                </ol>
-              </details>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between gap-2 text-xs text-slate-400">
+                  <span>
+                    <span className="mr-1 inline-block h-2 w-2 rounded-full bg-sky-400 align-middle" />
+                    {originSource === 'gps'
+                      ? `Start: your GPS (${formatDistance(Math.round(straightLine))} away)`
+                      : originSource === 'tapped'
+                        ? 'Start: point you tapped'
+                        : 'Start: simulated rider'}
+                    {!busy && ' · tap map to move'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={locateWithGps}
+                    disabled={busy}
+                    className="shrink-0 text-sky-300 hover:text-sky-200 disabled:opacity-50"
+                  >
+                    Use my GPS
+                  </button>
+                </div>
+
+                {ride.kind === 'simulating' ? (
+                  <div className="mt-3 flex gap-2">
+                    <div className="flex-1 rounded-lg bg-slate-800 px-3 py-2 text-slate-200">
+                      {formatDistance(ride.remaining_m)} to go
+                    </div>
+                    <button
+                      type="button"
+                      onClick={resetView}
+                      className="rounded-lg border border-white/15 px-4 py-2 text-slate-200 hover:bg-white/5"
+                    >
+                      Stop
+                    </button>
+                  </div>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    <button
+                      type="button"
+                      onClick={startDelivery}
+                      disabled={status.kind === 'loading'}
+                      className="w-full rounded-lg bg-[#39FF14] px-3 py-2.5 text-base font-semibold text-slate-950 hover:brightness-110 disabled:opacity-60"
+                    >
+                      Start delivery
+                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={startSimulation}
+                        disabled={status.kind === 'loading'}
+                        className="flex-1 rounded-lg border border-white/15 px-3 py-2 font-medium text-slate-200 hover:bg-white/5 disabled:opacity-60"
+                      >
+                        {ride.kind === 'simulated' ? 'Replay simulation' : 'Simulate ride'}
+                      </button>
+                      {ride.kind === 'simulated' && (
+                        <button
+                          type="button"
+                          onClick={resetView}
+                          className="rounded-lg border border-white/15 px-4 py-2 text-slate-200 hover:bg-white/5"
+                        >
+                          Overview
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {route.route.steps.length > 0 && (
+                  <details className="mt-3">
+                    <summary className="cursor-pointer text-slate-300">Turn-by-turn ({route.route.steps.length} steps)</summary>
+                    <ol className="mt-2 space-y-1.5 text-slate-300">
+                      {route.route.steps.map((s, i) => (
+                        <li key={i} className="flex justify-between gap-3">
+                          <span>{s.instruction}</span>
+                          {s.distance_m > 0 && <span className="shrink-0 text-slate-500">{formatDistance(s.distance_m)}</span>}
+                        </li>
+                      ))}
+                    </ol>
+                  </details>
+                )}
+              </>
             )}
           </>
         )}
       </section>
     </div>
   );
+}
+
+/** Moves `current` toward `target` by `factor`, taking the short way round the compass. */
+function easeHeading(current: number, target: number, factor: number) {
+  const delta = ((target - current + 540) % 360) - 180;
+  return (current + delta * factor + 360) % 360;
 }
 
 function addRouteLayers(map: MapboxMap) {
@@ -473,17 +755,6 @@ function addRouteLayers(map: MapboxMap) {
     layout: { 'line-cap': 'round' },
     paint: { 'line-color': NEON_GREEN, 'line-width': 3, 'line-dasharray': [1, 2], 'line-emissive-strength': 1 },
   });
-}
-
-function createRiderElement() {
-  const el = document.createElement('div');
-  el.setAttribute('aria-label', 'Rider');
-  el.style.cssText = `
-    width: 18px; height: 18px; border-radius: 50%;
-    background: #38bdf8; border: 3px solid #fff;
-    box-shadow: 0 0 0 6px rgba(56, 189, 248, 0.25), 0 0 12px rgba(56, 189, 248, 0.8);
-  `;
-  return el;
 }
 
 function formatDistance(m: number) {
