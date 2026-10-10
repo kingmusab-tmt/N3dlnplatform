@@ -42,7 +42,10 @@ export default function SharedPlaceView({ place }: { place: SharedPlace }) {
         zoom: 15.5,
         pitch: 30,
       });
-      map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), 'bottom-right');
+      // On phones the info card fills the bottom of the screen: keep controls clear of it,
+      // and frame the building in the visible area above the card.
+      const phone = window.innerWidth < 640;
+      map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), phone ? 'top-right' : 'bottom-right');
       map.on('style.load', () => {
         if (!map) return;
         setupScene(map);
@@ -52,7 +55,12 @@ export default function SharedPlaceView({ place }: { place: SharedPlace }) {
         if (place.claim.gate) {
           new mapboxgl.Marker({ element: createGateElement() }).setLngLat([place.claim.gate.lng, place.claim.gate.lat]).addTo(map);
         }
-        map.flyTo({ ...buildingCamera(place.center), speed: 0.6, essential: true });
+        map.flyTo({
+          ...buildingCamera(place.center),
+          padding: phone ? { top: 0, bottom: Math.round(window.innerHeight * 0.45), left: 0, right: 0 } : undefined,
+          speed: 0.6,
+          essential: true,
+        });
         map.once('moveend', () => {
           if (map) stopOrbit = startOrbit(map);
         });
@@ -98,21 +106,22 @@ export default function SharedPlaceView({ place }: { place: SharedPlace }) {
           )}
 
           <div className="mt-3 space-y-2">
+            {/* Our own navigation: routes to the owner's gate and shows the 3D building on arrival. */}
+            <Link
+              href={`/rider?code=${place.code}&claim=${place.claim.share_id}`}
+              className="block rounded-lg bg-[#39FF14] px-3 py-2 text-center font-semibold text-slate-950 transition hover:brightness-110"
+            >
+              Directions
+            </Link>
+            {shareUrl && <ShareButtons url={shareUrl} text={shareText} />}
             <a
               href={googleMapsDirectionsUrl(destinationOf(place))}
               target="_blank"
               rel="noopener noreferrer"
-              className="block rounded-lg bg-[#39FF14] px-3 py-2 text-center font-semibold text-slate-950 transition hover:brightness-110"
+              className="block text-center text-xs text-slate-400 underline hover:text-slate-200"
             >
-              Directions
+              Open in Google Maps instead
             </a>
-            <Link
-              href={`/rider?code=${place.code}&claim=${place.claim.share_id}`}
-              className="block rounded-lg border border-sky-400/40 px-3 py-2 text-center font-medium text-sky-300 transition hover:bg-sky-400/10"
-            >
-              Rider view
-            </Link>
-            {shareUrl && <ShareButtons url={shareUrl} text={shareText} />}
           </div>
 
           <p className="mt-3 text-xs text-slate-500">
