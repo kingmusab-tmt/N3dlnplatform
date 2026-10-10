@@ -1,5 +1,6 @@
 // Map setup shared by the search map, the Rider View and the shared-place page.
 import type { GeoJSONSource, Map as MapboxMap, MapOptions } from 'mapbox-gl';
+import type { MapMode } from './mapMode';
 import type { NavigateResponse } from './postcode';
 
 export const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
@@ -19,12 +20,33 @@ export const LIGHT_PRESETS: { value: LightPreset; label: string }[] = [
 export const prefersReducedMotion = () =>
   typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+// Which mode each map was built in, so helpers can adapt without extra arguments.
+const modes = new WeakMap<MapboxMap, MapMode>();
+export const mapModeOf = (map: MapboxMap): MapMode => modes.get(map) ?? 'full';
+
+// Muted colours by building use, so the neon target stands out.
+const BUILDING_COLORS = [
+  'match',
+  ['get', 'type'],
+  ['commercial', 'retail', 'office', 'industrial', 'warehouse'],
+  '#6b7a96',
+  ['residential', 'house', 'apartments', 'detached', 'semidetached_house', 'terrace'],
+  '#9a8c7c',
+  ['school', 'university', 'hospital', 'church', 'mosque', 'public', 'government', 'civic'],
+  '#7a9484',
+  '#8a929f',
+] as any;
+
 /**
- * Mapbox Standard style: real-time lighting, shadows, sky and 3D trees.
- * Its own 3D buildings are hidden because in Nigeria they're mostly flat
- * stubs; we draw ours from the platform's footprints instead (setupScene).
+ * Full: Mapbox Standard style with real-time lighting, shadows, sky and 3D
+ * trees. Its own 3D buildings are hidden because in Nigeria they're mostly
+ * flat stubs; we draw ours from the platform's footprints instead.
+ *
+ * Lite: the classic dark style, which is a much smaller download and far
+ * cheaper to draw: no lighting, terrain or 3D at all.
  */
-export function baseMapOptions(light: LightPreset = 'dusk'): Partial<MapOptions> {
+export function baseMapOptions(light: LightPreset = 'dusk', mode: MapMode = 'full'): Partial<MapOptions> {
+  if (mode === 'lite') return { style: 'mapbox://styles/mapbox/dark-v11', antialias: false };
   return {
     style: 'mapbox://styles/mapbox/standard',
     config: {
@@ -41,25 +63,39 @@ export function baseMapOptions(light: LightPreset = 'dusk'): Partial<MapOptions>
 }
 
 export function setLightPreset(map: MapboxMap, preset: LightPreset) {
-  map.setConfigProperty('basemap', 'lightPreset', preset);
-}
-
-/** Close-up camera for a resolved building: pitched to show the 3D extrusions. */
-export function buildingCamera(center: [number, number]) {
-  return { center, zoom: 18.2, pitch: 62, bearing: -20 };
+  if (mapModeOf(map) === 'full') map.setConfigProperty('basemap', 'lightPreset', preset);
 }
 
 /**
- * Adds terrain, every platform building in 3D (vector tiles from
- * /api/v1/tiles/buildings) and the neon delivery-target layers. Call on
- * 'style.load'.
+ * Close-up camera for a resolved building: pitched to show the 3D extrusions,
+ * or straight down in lite mode (a tilted view loads many more tiles).
  */
-export function setupScene(map: MapboxMap) {
-  // Terrain: Abuja sits among hills (Aso Rock is a few km east of Wuse).
-  if (!map.getSource('mapbox-dem')) {
-    map.addSource('mapbox-dem', { type: 'raster-dem', url: 'mapbox://mapbox.mapbox-terrain-dem-v1', tileSize: 512, maxzoom: 14 });
+export function buildingCamera(center: [number, number], mode: MapMode = 'full') {
+  return mode === 'lite' ? { center, zoom: 18, pitch: 0, bearing: 0 } : { center, zoom: 18.2, pitch: 62, bearing: -20 };
+}
+
+/** Camera tilt to use while following a rider. */
+export const followPitch = (map: MapboxMap) => (mapModeOf(map) === 'lite' ? 0 : 60);
+
+/**
+ * Adds every platform building (vector tiles from /api/v1/tiles/buildings)
+ * and the neon delivery-target layers; in full mode also terrain and 3D.
+ * Call on 'style.load'.
+ */
+export function setupScene(map: MapboxMap, mode: MapMode = 'full') {
+  modes.set(map, mode);
+  const full = mode === 'full';
+  // Standard style places custom layers in its "middle" slot (under labels);
+  // the classic lite style has no slots.
+  const slot = full ? { slot: 'middle' } : {};
+
+  if (full) {
+    // Terrain: Abuja sits among hills (Aso Rock is a few km east of Wuse).
+    if (!map.getSource('mapbox-dem')) {
+      map.addSource('mapbox-dem', { type: 'raster-dem', url: 'mapbox://mapbox.mapbox-terrain-dem-v1', tileSize: 512, maxzoom: 14 });
+    }
+    map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.2 });
   }
-  map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.2 });
 
   map.addSource(BUILDINGS_SOURCE, {
     type: 'vector',
@@ -69,34 +105,34 @@ export function setupScene(map: MapboxMap) {
     attribution: 'Buildings © OpenStreetMap contributors',
   });
 
-  map.addLayer({
-    id: BUILDINGS_LAYER,
-    type: 'fill-extrusion',
-    source: BUILDINGS_SOURCE,
-    'source-layer': 'buildings',
-    slot: 'middle',
-    minzoom: 13,
-    paint: {
-      // Muted colours by use, so the neon target stands out.
-      'fill-extrusion-color': [
-        'match',
-        ['get', 'type'],
-        ['commercial', 'retail', 'office', 'industrial', 'warehouse'],
-        '#6b7a96',
-        ['residential', 'house', 'apartments', 'detached', 'semidetached_house', 'terrace'],
-        '#9a8c7c',
-        ['school', 'university', 'hospital', 'church', 'mosque', 'public', 'government', 'civic'],
-        '#7a9484',
-        '#8a929f',
-      ],
-      // Buildings "grow" out of the ground as you zoom in.
-      'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 13, 0, 14.5, ['get', 'height']],
-      'fill-extrusion-base': 0,
-      'fill-extrusion-opacity': 0.95,
-      'fill-extrusion-vertical-gradient': true,
-      'fill-extrusion-ambient-occlusion-intensity': 0.35,
-    },
-  });
+  if (full) {
+    map.addLayer({
+      id: BUILDINGS_LAYER,
+      type: 'fill-extrusion',
+      source: BUILDINGS_SOURCE,
+      'source-layer': 'buildings',
+      ...slot,
+      minzoom: 13,
+      paint: {
+        'fill-extrusion-color': BUILDING_COLORS,
+        // Buildings "grow" out of the ground as you zoom in.
+        'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 13, 0, 14.5, ['get', 'height']],
+        'fill-extrusion-base': 0,
+        'fill-extrusion-opacity': 0.95,
+        'fill-extrusion-vertical-gradient': true,
+        'fill-extrusion-ambient-occlusion-intensity': 0.35,
+      },
+    });
+  } else {
+    map.addLayer({
+      id: BUILDINGS_LAYER,
+      type: 'fill',
+      source: BUILDINGS_SOURCE,
+      'source-layer': 'buildings',
+      minzoom: 14,
+      paint: { 'fill-color': BUILDING_COLORS, 'fill-opacity': 0.55, 'fill-outline-color': '#1e293b' },
+    });
+  }
 
   // The resolved delivery target, filled in on each successful lookup.
   map.addSource(TARGET_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -104,34 +140,49 @@ export function setupScene(map: MapboxMap) {
     id: 'target-building-glow',
     type: 'line',
     source: TARGET_SOURCE,
-    slot: 'middle',
-    paint: { 'line-color': NEON_GREEN, 'line-width': 10, 'line-blur': 8, 'line-opacity': 0.6, 'line-emissive-strength': 1 },
-  });
-  map.addLayer({
-    id: 'target-building-extrusion',
-    type: 'fill-extrusion',
-    source: TARGET_SOURCE,
-    slot: 'middle',
+    ...slot,
     paint: {
-      'fill-extrusion-color': NEON_GREEN,
-      'fill-extrusion-height': ['coalesce', ['get', 'render_height_m'], ['get', 'height_m'], DEFAULT_HEIGHT_M],
-      'fill-extrusion-base': 0,
-      'fill-extrusion-opacity': 0.9,
-      'fill-extrusion-emissive-strength': 1, // glows at dusk and night instead of being shaded
+      'line-color': NEON_GREEN,
+      'line-width': 10,
+      'line-blur': 8,
+      'line-opacity': 0.6,
+      ...(full && { 'line-emissive-strength': 1 }),
     },
   });
+  if (full) {
+    map.addLayer({
+      id: 'target-building-extrusion',
+      type: 'fill-extrusion',
+      source: TARGET_SOURCE,
+      ...slot,
+      paint: {
+        'fill-extrusion-color': NEON_GREEN,
+        'fill-extrusion-height': ['coalesce', ['get', 'render_height_m'], ['get', 'height_m'], DEFAULT_HEIGHT_M],
+        'fill-extrusion-base': 0,
+        'fill-extrusion-opacity': 0.9,
+        'fill-extrusion-emissive-strength': 1, // glows at dusk and night instead of being shaded
+      },
+    });
+  } else {
+    map.addLayer({
+      id: 'target-building-extrusion',
+      type: 'fill',
+      source: TARGET_SOURCE,
+      paint: { 'fill-color': NEON_GREEN, 'fill-opacity': 0.75 },
+    });
+  }
   map.addLayer({
     id: 'target-building-outline',
     type: 'line',
     source: TARGET_SOURCE,
-    slot: 'middle',
-    paint: { 'line-color': NEON_GREEN, 'line-width': 2.5, 'line-emissive-strength': 1 },
+    ...slot,
+    paint: { 'line-color': NEON_GREEN, 'line-width': 2.5, ...(full && { 'line-emissive-strength': 1 }) },
   });
 }
 
 /**
  * Paints the neon footprint for a result (or clears it), and hides that
- * building in the regular 3D layer so the two don't flicker over each other.
+ * building in the regular building layer so the two don't flicker over each other.
  */
 export function setHighlightedBuilding(map: MapboxMap, result: NavigateResponse) {
   (map.getSource(TARGET_SOURCE) as GeoJSONSource).setData(
@@ -143,12 +194,15 @@ export function setHighlightedBuilding(map: MapboxMap, result: NavigateResponse)
 
 const INTERACTIONS = ['mousedown', 'touchstart', 'wheel', 'dragstart'] as const;
 
+/** Decorative animation is off for reduced-motion users and in lite mode (battery and CPU). */
+const animationsOff = (map: MapboxMap) => prefersReducedMotion() || mapModeOf(map) === 'lite';
+
 /**
  * Slowly circles the camera around the current center until the user touches
  * the map. Returns a function that stops it.
  */
 export function startOrbit(map: MapboxMap, degreesPerSecond = 5) {
-  if (prefersReducedMotion()) return () => {};
+  if (animationsOff(map)) return () => {};
   let frame = 0;
   let last = performance.now();
   const step = (now: number) => {
@@ -167,7 +221,7 @@ export function startOrbit(map: MapboxMap, degreesPerSecond = 5) {
 
 /** Breathing glow around the target building. Returns a function that stops it. */
 export function startPulse(map: MapboxMap) {
-  if (prefersReducedMotion()) return () => {};
+  if (animationsOff(map)) return () => {};
   let frame = 0;
   let lastPaint = 0;
   const step = (now: number) => {

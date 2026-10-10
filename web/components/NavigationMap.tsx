@@ -11,6 +11,7 @@ import {
   buildingCamera,
   createGateElement,
   createPinElement,
+  mapModeOf,
   prefersReducedMotion,
   setHighlightedBuilding,
   setLightPreset,
@@ -19,7 +20,9 @@ import {
   startPulse,
   type LightPreset,
 } from '@/lib/map';
+import MapModeToggle from '@/components/MapModeToggle';
 import ShareButtons from '@/components/ShareButtons';
+import { resolveMapMode, type MapMode } from '@/lib/mapMode';
 import { AUTH_ENABLED, useUser } from '@/lib/supabase/client';
 import type { User } from '@supabase/supabase-js';
 import { normalizePostcode, type Claim, type Gate, type NavigateResponse, type Verification } from '@/lib/postcode';
@@ -50,6 +53,7 @@ export default function NavigationMap({ initialCode, editGateFor }: { initialCod
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const [light, setLight] = useState<LightPreset>('dusk');
+  const [mapMode, setMapMode] = useState<MapMode | null>(null);
   // Gate being marked for a claim: picking = the next map click places it.
   const [gate, setGate] = useState<Gate | null>(null);
   const [pickingGate, setPickingGate] = useState(false);
@@ -71,10 +75,15 @@ export default function NavigationMap({ initialCode, editGateFor }: { initialCod
       // don't create a map nobody will clean up.
       if (cancelled) return new Promise<MapboxMap>(() => {});
       mapboxgl.accessToken = MAPBOX_TOKEN;
+      const { mode } = resolveMapMode();
+      setMapMode(mode);
+      // Lite mode looks straight down: a tilted view loads many more tiles.
+      const flat = (view: typeof PILOT_VIEW) => (mode === 'lite' ? { ...view, pitch: 0, bearing: 0 } : view);
+      const pilotView = flat(PILOT_VIEW);
       const map = new mapboxgl.Map({
         container: containerRef.current!,
-        ...baseMapOptions('dusk'),
-        ...NIGERIA_VIEW,
+        ...baseMapOptions('dusk', mode),
+        ...flat(NIGERIA_VIEW),
       });
       map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), 'bottom-right');
       mapRef.current = map;
@@ -82,14 +91,13 @@ export default function NavigationMap({ initialCode, editGateFor }: { initialCod
       return new Promise<MapboxMap>((resolve) => {
         map.on('style.load', () => {
           if (cancelled) return;
-          setupScene(map);
+          setupScene(map, mode);
           stopPulse.current = startPulse(map);
           map.on('click', (e) => mapClickRef.current(e.lngLat.lng, e.lngLat.lat));
-          // Intro: sweep from the whole country down into the pilot area,
-          // unless the page was opened on a specific building (?code=…).
-          if (initialCode) map.jumpTo(PILOT_VIEW);
-          else if (prefersReducedMotion()) map.jumpTo(PILOT_VIEW);
-          else map.flyTo({ ...PILOT_VIEW, duration: 7000, curve: 1.6, essential: true });
+          // Intro: sweep from the whole country down into the pilot area, unless
+          // the page was opened on a specific building (?code=…) or the map is lite.
+          if (initialCode || mode === 'lite' || prefersReducedMotion()) map.jumpTo(pilotView);
+          else map.flyTo({ ...pilotView, duration: 7000, curve: 1.6, essential: true });
           resolve(map);
         });
       });
@@ -214,7 +222,7 @@ export default function NavigationMap({ initialCode, editGateFor }: { initialCod
     if (camera === 'stay' && map.getZoom() >= 16.5) return;
 
     map.flyTo({
-      ...buildingCamera(result.center),
+      ...buildingCamera(result.center, mapModeOf(map)),
       speed: 0.9,
       curve: 1.5,
       essential: true, // still animate for users with prefers-reduced-motion
@@ -392,11 +400,10 @@ export default function NavigationMap({ initialCode, editGateFor }: { initialCod
       </div>
 
       {MAPBOX_TOKEN && (
-        <div
-          role="radiogroup"
-          aria-label="Lighting"
-          className="absolute bottom-8 left-1/2 flex -translate-x-1/2 gap-1 rounded-lg border border-white/10 bg-slate-900/85 p-1 text-xs shadow-xl backdrop-blur"
-        >
+        <div className="absolute bottom-8 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-lg border border-white/10 bg-slate-900/85 p-1 text-xs shadow-xl backdrop-blur">
+          <MapModeToggle />
+          {mapMode === 'full' && (
+        <div role="radiogroup" aria-label="Lighting" className="flex gap-1 border-l border-white/10 pl-1">
           {LIGHT_PRESETS.map((p) => (
             <button
               key={p.value}
@@ -411,6 +418,8 @@ export default function NavigationMap({ initialCode, editGateFor }: { initialCod
               {p.label}
             </button>
           ))}
+        </div>
+          )}
         </div>
       )}
     </div>

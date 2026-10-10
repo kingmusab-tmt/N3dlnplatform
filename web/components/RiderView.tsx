@@ -10,9 +10,13 @@ import {
   baseMapOptions,
   buildingCamera,
   createPinElement,
+  followPitch,
+  mapModeOf,
   setHighlightedBuilding,
   setupScene,
 } from '@/lib/map';
+import MapModeToggle from '@/components/MapModeToggle';
+import { resolveMapMode } from '@/lib/mapMode';
 import { buildNavPlan, navProgress, type NavPlan } from '@/lib/navigation';
 import { normalizePostcode, type NavigateResponse, type RouteProfile, type RouteResponse } from '@/lib/postcode';
 import { createVehicleMarker, type VehicleMarker } from '@/lib/vehicles';
@@ -100,19 +104,20 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
       // don't create a map nobody will clean up.
       if (cancelled) return new Promise<MapboxMap>(() => {});
       mapboxgl.accessToken = MAPBOX_TOKEN;
+      const { mode } = resolveMapMode();
       map = new mapboxgl.Map({
         container: containerRef.current!,
-        ...baseMapOptions('dusk'),
+        ...baseMapOptions('dusk', mode),
         center: [7.4789, 9.0777],
         zoom: 14,
-        pitch: 40,
+        pitch: mode === 'lite' ? 0 : 40,
       });
       map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), 'top-right');
 
       return new Promise<MapboxMap>((resolve) => {
         map!.on('style.load', () => {
           if (cancelled || !map) return;
-          setupScene(map);
+          setupScene(map, mode);
           addRouteLayers(map);
           map.on('click', (e) => mapClickRef.current([e.lngLat.lng, e.lngLat.lat]));
           // Panning by hand during navigation pauses the follow camera.
@@ -232,7 +237,7 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
     const mobile = window.innerWidth < 640;
     map.fitBounds(boundsOf(pts), {
       padding: mobile ? { top: 90, bottom: 330, left: 30, right: 30 } : { top: 60, bottom: 60, left: 460, right: 60 },
-      pitch: 45,
+      pitch: mapModeOf(map) === 'lite' ? 0 : 45,
       bearing: 0,
       duration: 1200,
     });
@@ -298,7 +303,7 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
 
       vehicle.current?.marker.setLngLat(point);
       vehicle.current?.setHeading(heading);
-      map.jumpTo({ center: point, bearing: heading, pitch: 60, zoom: 17.3 });
+      map.jumpTo({ center: point, bearing: heading, pitch: followPitch(map), zoom: 17.3 });
 
       if (now - lastUiUpdate > 200) {
         lastUiUpdate = now;
@@ -309,7 +314,7 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
       } else {
         animFrame.current = null;
         setRide({ kind: 'simulated' });
-        map.flyTo({ ...buildingCamera(route.center), speed: 0.8, essential: true });
+        map.flyTo({ ...buildingCamera(route.center, mapModeOf(map)), speed: 0.8, essential: true });
       }
     };
     setRide({ kind: 'simulating', remaining_m: Math.round(line.length) });
@@ -394,14 +399,14 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
 
     vehicle.current?.marker.setLngLat(point);
     vehicle.current?.setHeading(state.heading);
-    if (state.follow) map.easeTo({ center: point, bearing: state.heading, pitch: 60, zoom: 17.5, duration: 900 });
+    if (state.follow) map.easeTo({ center: point, bearing: state.heading, pitch: followPitch(map), zoom: 17.5, duration: 900 });
 
     const progress = navProgress(state.plan!, point, accuracy);
 
     if (progress.arrived) {
       endNavigation();
       setRide({ kind: 'delivered' });
-      map.flyTo({ ...buildingCamera(state.plan!.destination), speed: 0.8, essential: true });
+      map.flyTo({ ...buildingCamera(state.plan!.destination, mapModeOf(map)), speed: 0.8, essential: true });
       return;
     }
 
@@ -431,7 +436,7 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
     setFollowing(true);
     const map = await mapReady.current;
     if (map && nav.current.last) {
-      map.easeTo({ center: nav.current.last, bearing: nav.current.heading, pitch: 60, zoom: 17.5, duration: 600 });
+      map.easeTo({ center: nav.current.last, bearing: nav.current.heading, pitch: followPitch(map), zoom: 17.5, duration: 600 });
     }
   }
 
@@ -526,9 +531,13 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
 
       {/* Bottom sheet (left panel on desktop) */}
       <section className="absolute inset-x-0 bottom-0 max-h-[55dvh] overflow-y-auto rounded-t-2xl border border-white/10 bg-slate-900/95 p-4 text-sm shadow-2xl backdrop-blur sm:inset-x-auto sm:bottom-auto sm:left-3 sm:top-20 sm:max-h-[calc(100dvh-6rem)] sm:w-[400px] sm:rounded-2xl">
-        <p className="text-xs uppercase tracking-wider text-slate-500">
-          {ride.kind === 'navigating' || ride.kind === 'locating' ? 'Delivering · live GPS' : 'Rider view'}
-        </p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs uppercase tracking-wider text-slate-500">
+            {ride.kind === 'navigating' || ride.kind === 'locating' ? 'Delivering · live GPS' : 'Rider view'}
+          </p>
+          {/* Switching reloads the page, so not mid-ride. */}
+          <MapModeToggle disabled={busy} className="rounded-lg bg-slate-800 p-0.5" />
+        </div>
 
         {status.kind === 'error' && (
           <p role="alert" className="mt-2 rounded-lg bg-red-950/90 px-3 py-2 text-red-200">

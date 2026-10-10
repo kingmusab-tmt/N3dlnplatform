@@ -3,13 +3,16 @@
 import type { Map as MapboxMap } from 'mapbox-gl';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
+import MapModeToggle from '@/components/MapModeToggle';
 import ShareButtons from '@/components/ShareButtons';
+import { resolveMapMode } from '@/lib/mapMode';
 import {
   MAPBOX_TOKEN,
   baseMapOptions,
   buildingCamera,
   createGateElement,
   createPinElement,
+  mapModeOf,
   setHighlightedBuilding,
   setupScene,
   startOrbit,
@@ -34,13 +37,14 @@ export default function SharedPlaceView({ place }: { place: SharedPlace }) {
     import('mapbox-gl').then(({ default: mapboxgl }) => {
       if (cancelled) return;
       mapboxgl.accessToken = MAPBOX_TOKEN;
+      const { mode } = resolveMapMode();
       // Start a little wide, then glide in so the viewer sees the neighbourhood first.
       map = new mapboxgl.Map({
         container: containerRef.current!,
-        ...baseMapOptions('dusk'),
+        ...baseMapOptions('dusk', mode),
         center: place.center,
         zoom: 15.5,
-        pitch: 30,
+        pitch: mode === 'lite' ? 0 : 30,
       });
       // On phones the info card fills the bottom of the screen: keep controls clear of it,
       // and frame the building in the visible area above the card.
@@ -48,7 +52,7 @@ export default function SharedPlaceView({ place }: { place: SharedPlace }) {
       map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), phone ? 'top-right' : 'bottom-right');
       map.on('style.load', () => {
         if (!map) return;
-        setupScene(map);
+        setupScene(map, mode);
         setHighlightedBuilding(map, place);
         stopPulse = startPulse(map);
         new mapboxgl.Marker({ element: createPinElement(), anchor: 'bottom' }).setLngLat(place.center).addTo(map);
@@ -56,7 +60,7 @@ export default function SharedPlaceView({ place }: { place: SharedPlace }) {
           new mapboxgl.Marker({ element: createGateElement() }).setLngLat([place.claim.gate.lng, place.claim.gate.lat]).addTo(map);
         }
         map.flyTo({
-          ...buildingCamera(place.center),
+          ...buildingCamera(place.center, mapModeOf(map)),
           padding: phone ? { top: 0, bottom: Math.round(window.innerHeight * 0.45), left: 0, right: 0 } : undefined,
           speed: 0.6,
           essential: true,
@@ -130,6 +134,9 @@ export default function SharedPlaceView({ place }: { place: SharedPlace }) {
               Find another address
             </Link>
           </p>
+          <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
+            Map: <MapModeToggle className="rounded-lg bg-slate-800 p-0.5" />
+          </div>
         </div>
       </div>
     </div>
