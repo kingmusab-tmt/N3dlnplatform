@@ -31,6 +31,12 @@ Owner: **you** = needs your accounts or a decision · **dev** = code work.
 - [ ] **Add a favicon.** The browser currently gets a 404 for `/favicon.ico`. *(dev)*
 - [ ] **Field test in Wuse 2:** walk or ride real deliveries and check GPS against the 3D map. Phase 3 of the MVP plan. *(you)*
 
+## Security
+
+- [x] **Security headers:** strict Content-Security-Policy, no framing, HSTS, nosniff, referrer and permissions policies, no X-Powered-By. *(done)*
+- [ ] **Upgrade to Next.js 16** to clear the remaining audit finding (PostCSS inside Next 15, a build-time issue, so low risk). It's a major upgrade: `middleware.ts` becomes `proxy.ts`, among other changes. *(dev)*
+- [ ] **CAPTCHA on sign-in** (Supabase supports hCaptcha/Turnstile), if SMS or email code requests get abused. *(you: free account, then dev)*
+
 ## Housekeeping
 
 - [ ] **Move the project out of OneDrive** (e.g. `C:\dev\N3DLNPlatform`). OneDrive syncing has caused stale configs and locked folders. *(you)*
