@@ -1,0 +1,460 @@
+openapi: 3.0.3
+info:
+  title: NIPOST 3D Navigation API
+  version: 0.1.0
+  description: |
+    Resolves Nigeria's NIPOST digital postcodes to exact building footprints, and routes
+    dispatch riders to the building.
+
+    **Postcodes** have 11 characters in 5 segments: State (2 letters), LGA (2 digits),
+    District (3 alphanumerics), Area (2 letters), Building unit (2 digits), e.g.
+    `FC 02 SIM BP 88`. Spaces, dashes and letter case are ignored, so `fc-02-sim-bp-88`
+    and `FC02SIMBP88` are the same code. Responses always use the compact form
+    (`code`) plus a display form (`formatted`).
+
+    **Coordinates** are WGS84 `[longitude, latitude]` in that order, as in GeoJSON.
+
+    **Pilot data:** buildings in Wuse 2, Abuja come from OpenStreetMap and carry
+    *simulated* codes in district `SIM`, which is never a real NIPOST district. Real codes
+    are checked against the NIPOST Digital Postcode API when the server has a key.
+
+    **Errors** share one shape: `{ "error": "MACHINE_CODE", "message": "Human text" }`.
+servers:
+  - url: /
+    description: This server
+tags:
+  - name: Lookup
+    description: Resolve postcodes and map positions to buildings.
+  - name: Routing
+    description: Rider routes to a building.
+  - name: Claims
+    description: Owner-submitted home profiles and shareable links.
+  - name: System
+
+paths:
+  /api/v1/navigate/{code}:
+    get:
+      tags: [Lookup]
+      operationId: navigate
+      summary: Resolve a postcode to its building
+      description: |
+        Looks the code up in the platform's building database and, in parallel, checks it
+        with NIPOST. If the code isn't mapped here but NIPOST returns coordinates (lookup
+        level 5), the building footprint at that point is returned instead, with
+        `source: nipost`.
+      parameters:
+        - $ref: '#/components/parameters/Code'
+      responses:
+        '200':
+          description: The building, as a GeoJSON footprint plus center point.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NavigateResponse' }
+        '400': { $ref: '#/components/responses/InvalidPostcode' }
+        '404':
+          description: |
+            `POSTCODE_NOT_FOUND`: not mapped and not confirmed by NIPOST.
+            `POSTCODE_NOT_MAPPED`: NIPOST confirms the code, but its building isn't on the platform yet.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Error'
+                  - type: object
+                    properties:
+                      code: { type: string, example: FC01A01KP27 }
+                      verification: { $ref: '#/components/schemas/Verification' }
+
+  /api/v1/navigate/{code}/route:
+    get:
+      tags: [Routing]
+      operationId: routeToBuilding
+      summary: Route a rider to a building
+      description: |
+        Road route from the rider's position to the building, plus `lastMile`: the
+        on-foot leg from where the road ends to the building's gate, or to its
+        center when no gate is mapped (`destination.kind`).
+      parameters:
+        - $ref: '#/components/parameters/Code'
+        - name: from
+          in: query
+          required: true
+          description: Rider position as `lng,lat`.
+          schema: { type: string, example: '7.4755,9.0790' }
+        - name: profile
+          in: query
+          required: false
+          description: Travel mode. There is no motorbike profile; use `driving` for dispatch bikes.
+          schema: { type: string, enum: [driving, cycling, walking], default: driving }
+      responses:
+        '200':
+          description: Route, last-mile leg and the destination building.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RouteResponse' }
+        '400':
+          description: '`INVALID_POSTCODE`, `INVALID_ORIGIN` or `INVALID_PROFILE`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404': { $ref: '#/components/responses/PostcodeNotFound' }
+        '422':
+          description: '`NO_ROUTE`: no road connects the two points.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '502':
+          description: '`ROUTING_FAILED` or `NETWORK_ERROR`: the routing provider failed.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503':
+          description: '`ROUTING_NOT_CONFIGURED`: this server has no routing provider.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/buildings/at:
+    get:
+      tags: [Lookup]
+      operationId: buildingAt
+      summary: Find the building at a map position
+      description: |
+        Returns the footprint containing the point, or the nearest one within 12 m.
+        Used for "drop a pin on your building".
+      parameters:
+        - name: lng
+          in: query
+          required: true
+          schema: { type: number, minimum: -180, maximum: 180, example: 7.4854694 }
+        - name: lat
+          in: query
+          required: true
+          schema: { type: number, minimum: -90, maximum: 90, example: 9.0675872 }
+      responses:
+        '200':
+          description: The building under the pin.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BuildingResult'
+                  - type: object
+                    required: [pin]
+                    properties:
+                      pin:
+                        type: object
+                        properties:
+                          lng: { type: number }
+                          lat: { type: number }
+                          distance_m: { type: number, description: '0 when the point is inside the footprint.' }
+        '400':
+          description: '`INVALID_COORDINATES`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: '`NO_BUILDING_HERE`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/buildings/{code}/claims:
+    post:
+      tags: [Claims]
+      operationId: createClaim
+      summary: Claim a building as your place
+      description: |
+        Attaches a label and delivery notes to a building and returns a claim `id`.
+        The shareable link is `/h/{id}`. Claims are **unverified**: there are no user
+        accounts yet. Rate limited to 20 per IP per hour.
+      parameters:
+        - $ref: '#/components/parameters/Code'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClaimCreate' }
+      responses:
+        '201':
+          description: Claim created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Claim' }
+        '400':
+          description: '`INVALID_POSTCODE` or `INVALID_CLAIM`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404': { $ref: '#/components/responses/PostcodeNotFound' }
+        '429':
+          description: '`RATE_LIMITED`; see the `Retry-After` header.'
+          headers:
+            Retry-After:
+              schema: { type: integer }
+              description: Seconds until the limit resets.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/claims/{id}:
+    get:
+      tags: [Claims]
+      operationId: getClaim
+      summary: Get a shared place
+      description: |
+        The home profile behind a shareable link. Knowing the id is the only access
+        control, so treat ids as secrets.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The claim and its building.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BuildingResult'
+                  - type: object
+                    required: [claim]
+                    properties:
+                      claim:
+                        type: object
+                        properties:
+                          id: { type: string, format: uuid }
+                          label: { type: string }
+                          delivery_notes: { type: string, nullable: true }
+                          status: { $ref: '#/components/schemas/ClaimStatus' }
+                          created_at: { type: string, format: date-time }
+        '404':
+          description: '`CLAIM_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/health:
+    get:
+      tags: [System]
+      operationId: health
+      summary: Health and configuration
+      responses:
+        '200':
+          description: Server is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  nipost: { type: string, example: level 1 }
+                  routing: { type: string, example: mapbox }
+
+components:
+  parameters:
+    Code:
+      name: code
+      in: path
+      required: true
+      description: NIPOST postcode in any spacing or case.
+      schema: { type: string, example: FC-02-SIM-BP-88 }
+
+  responses:
+    InvalidPostcode:
+      description: '`INVALID_POSTCODE`: not in the 11-character NIPOST format.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    PostcodeNotFound:
+      description: '`POSTCODE_NOT_FOUND`'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error: { type: string, example: INVALID_POSTCODE }
+        message: { type: string }
+
+    LngLat:
+      type: array
+      description: '[longitude, latitude]'
+      items: { type: number }
+      minItems: 2
+      maxItems: 2
+      example: [7.4854694, 9.0675872]
+
+    Segments:
+      type: object
+      properties:
+        state: { type: string, example: FC }
+        lga: { type: string, example: '02' }
+        district: { type: string, example: SIM }
+        area: { type: string, example: BP }
+        building: { type: string, example: '88' }
+
+    Verification:
+      type: object
+      description: Result of checking the code with NIPOST.
+      properties:
+        source: { type: string, enum: [nipost] }
+        status:
+          type: string
+          enum: [verified, unregistered, not_in_sandbox, unavailable, not_configured]
+          description: |
+            `verified`: NIPOST confirms the code. `unregistered`: a live NIPOST key says it
+            doesn't exist. `not_in_sandbox`: a test key can only see NIPOST's sandbox, so this
+            says nothing about real codes. `unavailable`: NIPOST couldn't be reached.
+            `not_configured`: the server has no NIPOST key.
+        environment: { type: string, enum: [test, live] }
+        level: { type: integer, minimum: 1, maximum: 5 }
+        reason: { type: string, description: 'Set when status is `unavailable`.' }
+
+    BuildingProperties:
+      type: object
+      description: Building metadata. Fields vary by data source; all are optional except `nipost_code`.
+      required: [nipost_code]
+      additionalProperties: true
+      properties:
+        nipost_code: { type: string, example: FC02SIMBP88 }
+        name: { type: string, example: Silverbird Cinemas & Shopping Centre }
+        building_type: { type: string, example: commercial }
+        height_m: { type: number, example: 12.8 }
+        floors: { type: number, example: 4 }
+        source: { type: string, example: osm }
+        code_source: { type: string, enum: [simulated, nipost] }
+        gate:
+          type: object
+          description: Mapped entrance, when known.
+          properties:
+            lng: { type: number }
+            lat: { type: number }
+            type: { type: string, example: main }
+
+    BuildingFeature:
+      type: object
+      description: GeoJSON Feature with the building footprint polygon.
+      required: [type, geometry, properties]
+      properties:
+        type: { type: string, enum: [Feature] }
+        id: { type: integer }
+        geometry:
+          type: object
+          properties:
+            type: { type: string, enum: [Polygon] }
+            coordinates:
+              type: array
+              items:
+                type: array
+                items: { $ref: '#/components/schemas/LngLat' }
+        properties: { $ref: '#/components/schemas/BuildingProperties' }
+
+    BuildingResult:
+      type: object
+      required: [code, formatted, segments, center, bbox, building]
+      properties:
+        code: { type: string, example: FC02SIMBP88 }
+        formatted: { type: string, example: FC 02 SIM BP 88 }
+        segments: { $ref: '#/components/schemas/Segments' }
+        source:
+          type: string
+          enum: [platform, nipost]
+          description: '`nipost` when the location came from NIPOST coordinates.'
+        center:
+          allOf: [{ $ref: '#/components/schemas/LngLat' }]
+          description: A point guaranteed to be inside the footprint; use it for camera and routing.
+        bbox:
+          type: array
+          nullable: true
+          items: { type: number }
+          description: '[minLng, minLat, maxLng, maxLat]'
+          example: [7.4852, 9.0674, 7.4857, 9.0677]
+        building:
+          allOf: [{ $ref: '#/components/schemas/BuildingFeature' }]
+          nullable: true
+          description: Null only when NIPOST gave a point with no footprint mapped there.
+
+    NavigateResponse:
+      allOf:
+        - $ref: '#/components/schemas/BuildingResult'
+        - type: object
+          properties:
+            verification: { $ref: '#/components/schemas/Verification' }
+            nipostPoint: { $ref: '#/components/schemas/LngLat' }
+
+    RouteResponse:
+      allOf:
+        - $ref: '#/components/schemas/BuildingResult'
+        - type: object
+          required: [profile, origin, destination, route]
+          properties:
+            profile: { type: string, enum: [driving, cycling, walking] }
+            origin: { $ref: '#/components/schemas/LngLat' }
+            destination:
+              type: object
+              properties:
+                point: { $ref: '#/components/schemas/LngLat' }
+                kind: { type: string, enum: [gate, center] }
+            route:
+              type: object
+              properties:
+                geometry:
+                  type: object
+                  description: GeoJSON LineString along the roads.
+                  properties:
+                    type: { type: string, enum: [LineString] }
+                    coordinates:
+                      type: array
+                      items: { $ref: '#/components/schemas/LngLat' }
+                distance_m: { type: integer, example: 4240 }
+                duration_s: { type: integer, example: 660 }
+                steps:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      instruction: { type: string, example: Turn left onto Ahmadu Bello Way. }
+                      distance_m: { type: integer }
+                      road: { type: string }
+                      maneuver: { type: string, example: turn }
+                      location: { $ref: '#/components/schemas/LngLat' }
+            lastMile:
+              type: object
+              nullable: true
+              description: On-foot leg from the end of the road to the destination; null when under 3 m.
+              properties:
+                geometry:
+                  type: object
+                  properties:
+                    type: { type: string, enum: [LineString] }
+                    coordinates:
+                      type: array
+                      items: { $ref: '#/components/schemas/LngLat' }
+                distance_m: { type: integer, example: 41 }
+
+    ClaimStatus:
+      type: string
+      enum: [unverified, verified, rejected]
+
+    ClaimCreate:
+      type: object
+      required: [label]
+      properties:
+        label: { type: string, minLength: 1, maxLength: 80, example: Flat 3B }
+        delivery_notes: { type: string, maxLength: 500, example: 'Blue gate on the left, ring twice' }
+
+    Claim:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string, example: FC02SIMBP88 }
+        formatted: { type: string, example: FC 02 SIM BP 88 }
+        label: { type: string }
+        delivery_notes: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/ClaimStatus' }
+        created_at: { type: string, format: date-time }

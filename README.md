@@ -43,6 +43,11 @@ Codes to try in Wuse 2: `FC 02 SIM BP 88` (Silverbird Cinemas), `FC 02 SIM AV 71
 
 ## API
 
+**Interactive docs:** http://localhost:3000/api/v1/docs (Swagger UI, with "Try it out").
+**Spec:** [server/openapi.yaml](server/openapi.yaml), also served at `/api/v1/openapi.yaml`. Postman, Insomnia and client generators can import it directly (in Postman: Import → Link).
+
+`server/test/openapi.test.js` validates the spec and calls every documented operation, failing if an endpoint is missing or returns a status the spec doesn't list. Update the spec in the same change as the code.
+
 `GET /api/v1/navigate/:code`. Spaces, dashes and letter case are ignored.
 
 | Status | Body |
