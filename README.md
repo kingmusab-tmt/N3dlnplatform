@@ -1,0 +1,62 @@
+# NIPOST 3D Logistics & Navigation Platform (MVP)
+
+Resolves a Nigerian digital postcode (e.g. `FC 02 A09 DB 09`) to its exact building footprint and flies a 3D Mapbox camera to it.
+
+```
+supabase/   Supabase project: PostGIS schema (migrations/) + demo data (seed.sql)
+server/     Express API: GET /api/v1/navigate/:code
+web/        Next.js + Mapbox GL JS 3D map
+```
+
+## Run locally
+
+Requires Docker Desktop running and the Supabase CLI.
+
+```bash
+# 1. Database: local Supabase (Postgres on :54322, Studio on http://127.0.0.1:54323)
+supabase start            # applies migrations + seed on first run
+supabase db reset         # re-apply schema and seed after editing the SQL
+
+# 2. API on :4000
+cd server && cp .env.example .env && npm install && npm run dev
+
+# 3. Web on :3000 (add your Mapbox pk.* token to .env.local first)
+cd web && cp .env.example .env.local && npm install && npm run dev
+```
+
+To deploy the schema to a hosted Supabase project, run `supabase link --project-ref <ref>` and then `supabase db push`. Then set `DATABASE_URL` in the API to the project's connection string.
+
+To try it, search for `FC 02 A09 DB 09`, `FC-02-A09-DB-01` or `ek01a03fk01`.
+
+## API
+
+`GET /api/v1/navigate/:code`. Spaces, dashes and letter case are ignored.
+
+| Status | Body |
+|---|---|
+| 200 | `{ code, formatted, segments, center: [lng, lat], bbox, building: Feature<Polygon>, centerPoint: Feature<Point> }` |
+| 400 | `{ error: "INVALID_POSTCODE" }`: not in the `AA00A00AA00` format |
+| 404 | `{ error: "POSTCODE_NOT_FOUND" }` |
+
+Every response includes `verification.status`. It is `verified` or `unregistered` when NIPOST answered, `unavailable` when NIPOST couldn't be reached, and `not_configured` when no key is set. A code that NIPOST recognises but that has no footprint on this platform returns 404 `POSTCODE_NOT_MAPPED`.
+
+### NIPOST integration
+
+Set `NIPOST_API_KEY` in `server/.env`. Use a **secret** key (`nipost_test_…` / `nipost_live_…`), never a publishable one. Then set `NIPOST_LOOKUP_LEVEL` to the highest level your key is granted:
+
+- **Level 1** (free): the API checks each code with NIPOST, but locations still come only from this platform's database.
+- **Level 5**: NIPOST also returns the location. Codes missing from the database are matched to the building footprint at that point (within 30 m). If there's no footprint there, the API returns NIPOST's point on its own.
+
+If NIPOST is down, buildings in the database are still returned, marked `unavailable`.
+
+`building.properties` holds the row's `metadata` JSONB (`height_m`, `building_type`, `gate`, …). The map uses `height_m` as the height of the highlighted building.
+
+## Postcode format
+
+Codes are stored in canonical form, which is 11 uppercase characters with no separators: State (2 letters), LGA (2 digits), District (letter + 2 digits), Area (2 letters), Building (2 digits). The same pattern is enforced in the API ([server/src/lib/postcode.js](server/src/lib/postcode.js)), the UI ([web/lib/postcode.ts](web/lib/postcode.ts)) and a DB `CHECK` constraint. If NIPOST publishes a different segment layout, update all three.
+
+## Tests
+
+```bash
+cd server && npm test
+```
