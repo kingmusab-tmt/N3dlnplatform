@@ -6,3 +6,5 @@ next-env.d.ts
 *.tsbuildinfo
 supabase/.branches
 supabase/.temp
+# Local deploy secrets (DB password etc.), never committed
+.deploy.env
