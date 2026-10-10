@@ -78,7 +78,7 @@ function createFakeNipost(registry, { level = 1, environment = 'live', failWith 
 }
 
 async function startServer(db, opts) {
-  const server = createApp(db, opts).listen(0);
+  const server = createApp(db, { auth: false, ...opts }).listen(0);
   await new Promise((r) => server.once('listening', r));
   return { server, base: `http://127.0.0.1:${server.address().port}` };
 }

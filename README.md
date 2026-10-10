@@ -58,6 +58,22 @@ Codes to try in Wuse 2: `FC 02 SIM BP 88` (Silverbird Cinemas), `FC 02 SIM AV 71
 
 Every response includes `verification.status`. It is `verified` or `unregistered` when NIPOST answered, `unavailable` when NIPOST couldn't be reached, and `not_configured` when no key is set. A code that NIPOST recognises but that has no footprint on this platform returns 404 `POSTCODE_NOT_MAPPED`.
 
+### API keys
+
+Every `/api/v1` data endpoint requires an `X-API-Key` header. Health, docs and the spec are public.
+
+```bash
+cd server
+npm run keys -- create "Jumia Logistics" --limit 120   # partner key, 120 requests/min
+npm run keys -- create "Web app" --first-party         # the website's own key
+npm run keys -- list
+npm run keys -- revoke n3d_live_AbC123                 # prefix as shown by list
+```
+
+- **Partner keys** (`n3d_live_…`) are rate-limited per key. The key is printed once at creation, and only its SHA-256 hash is stored.
+- **The website** never exposes a key to the browser. `web/app/api/v1/[...path]/route.ts` proxies `/api/v1/*` to the API and attaches the first-party key (`API_KEY` in `web/.env.local`, server-only). The first-party key is limited to **60 requests/min per visitor IP**, read from `X-Forwarded-For`, so the site can't be used as a keyless back door. That header is only trusted for first-party keys, and the site must run behind a proxy that sets it (Vercel does), or visitors could spoof it.
+- Revoked keys stop working within 60 seconds (lookup cache). Rate limits are in memory, per server instance.
+
 ### Pin-drop and claims
 
 | Endpoint | Purpose |

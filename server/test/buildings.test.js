@@ -39,7 +39,7 @@ describe('/api/v1/buildings', () => {
   let server;
   let base;
   before(async () => {
-    server = createApp(db, { claimLimit: { windowMs: 60_000, max: 4 } }).listen(0);
+    server = createApp(db, { auth: false, claimLimit: { windowMs: 60_000, max: 4 } }).listen(0);
     await new Promise((r) => server.once('listening', r));
     base = `http://127.0.0.1:${server.address().port}/api/v1/buildings`;
   });
@@ -127,7 +127,7 @@ describe('GET /api/v1/claims/:id', () => {
   let server;
   let base;
   before(async () => {
-    server = createApp(db).listen(0);
+    server = createApp(db, { auth: false }).listen(0);
     await new Promise((r) => server.once('listening', r));
     base = `http://127.0.0.1:${server.address().port}/api/v1/claims`;
   });

@@ -18,7 +18,17 @@ info:
     *simulated* codes in district `SIM`, which is never a real NIPOST district. Real codes
     are checked against the NIPOST Digital Postcode API when the server has a key.
 
+    **Authentication:** send your key in the `X-API-Key` header on every request except
+    health and docs. Keys are issued per partner; contact the platform team for one.
+    Missing or invalid keys get `401`.
+
+    **Rate limits:** each key has a per-minute limit (default 120). Every response carries
+    `X-RateLimit-Limit` and `X-RateLimit-Remaining`. Over the limit you get `429` with
+    `Retry-After` (seconds).
+
     **Errors** share one shape: `{ "error": "MACHINE_CODE", "message": "Human text" }`.
+security:
+  - ApiKeyAuth: []
 servers:
   - url: /
     description: This server
@@ -45,6 +55,8 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Code'
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
         '200':
           description: The building, as a GeoJSON footprint plus center point.
           content:
@@ -87,6 +99,8 @@ paths:
           description: Travel mode. There is no motorbike profile; use `driving` for dispatch bikes.
           schema: { type: string, enum: [driving, cycling, walking], default: driving }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
         '200':
           description: Route, last-mile leg and the destination building.
           content:
@@ -132,6 +146,8 @@ paths:
           required: true
           schema: { type: number, minimum: -90, maximum: 90, example: 9.0675872 }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
         '200':
           description: The building under the pin.
           content:
@@ -176,6 +192,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/ClaimCreate' }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '201':
           description: Claim created.
           content:
@@ -211,6 +228,8 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
         '200':
           description: The claim and its building.
           content:
@@ -240,6 +259,7 @@ paths:
       tags: [System]
       operationId: health
       summary: Health and configuration
+      security: []
       responses:
         '200':
           description: Server is up.
@@ -261,7 +281,27 @@ components:
       description: NIPOST postcode in any spacing or case.
       schema: { type: string, example: FC-02-SIM-BP-88 }
 
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: 'Partner key (`n3d_live_…`), issued per organisation.'
+
   responses:
+    Unauthorized:
+      description: '`API_KEY_REQUIRED` or `INVALID_API_KEY`.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    RateLimited:
+      description: '`RATE_LIMITED`; retry after the number of seconds in `Retry-After`.'
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
     InvalidPostcode:
       description: '`INVALID_POSTCODE`: not in the 11-character NIPOST format.'
       content:

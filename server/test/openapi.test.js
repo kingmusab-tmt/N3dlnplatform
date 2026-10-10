@@ -2,8 +2,10 @@ import SwaggerParser from '@apidevtools/swagger-parser';
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import { createApp } from '../src/app.js';
+import { generateKey } from '../src/lib/apiKeys.js';
 import { OPENAPI_PATH } from '../src/routes/docs.js';
 
+const TEST_KEY = generateKey('partner');
 const CLAIM_ID = '3f2b8c1e-9a4d-4e7b-8c2a-1d5e6f7a8b9c';
 const ROW = {
   id: 7,
@@ -17,7 +19,11 @@ const ROW = {
 
 // Answers every query the app makes with the one building above.
 const fakeDb = {
-  async query(sql) {
+  async query(sql, params) {
+    if (sql.includes('FROM api_keys')) {
+      return { rows: params[0] === TEST_KEY.hash ? [{ id: 1, name: 'Test partner', kind: 'partner', rate_limit_per_min: 1000 }] : [] };
+    }
+    if (sql.includes('UPDATE api_keys')) return { rows: [] };
     if (sql.includes('INSERT INTO claims')) {
       return { rows: [{ id: CLAIM_ID, label: 'Flat 3B', delivery_notes: null, status: 'unverified', created_at: new Date().toISOString() }] };
     }
@@ -82,11 +88,17 @@ describe('OpenAPI spec', () => {
           ? JSON.stringify(Object.fromEntries(Object.entries(bodySchema.properties).map(([k, s]) => [k, sampleFor(s)])))
           : undefined;
 
-        const res = await fetch(`${base}${url}${query.size ? `?${query}` : ''}`, {
-          method: method.toUpperCase(),
-          headers: body ? { 'Content-Type': 'application/json' } : {},
-          body,
-        });
+        const secured = (op.security ?? spec.security ?? []).length > 0;
+        const headers = { ...(body && { 'Content-Type': 'application/json' }), ...(secured && { 'X-API-Key': TEST_KEY.key }) };
+        const target = `${base}${url}${query.size ? `?${query}` : ''}`;
+
+        if (secured) {
+          const anon = await fetch(target, { method: method.toUpperCase(), headers: { ...headers, 'X-API-Key': '' }, body });
+          assert.equal(anon.status, 401, `${method.toUpperCase()} ${path} should require a key`);
+          assert.ok(op.responses['401'], `${method.toUpperCase()} ${path} should document 401`);
+        }
+
+        const res = await fetch(target, { method: method.toUpperCase(), headers, body });
         const documented = Object.keys(op.responses);
         assert.ok(
           documented.includes(String(res.status)),

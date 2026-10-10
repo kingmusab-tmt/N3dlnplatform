@@ -81,7 +81,7 @@ describe('GET /api/v1/navigate/:code/route', () => {
   let server;
   let base;
   before(async () => {
-    server = createApp(db, { directions }).listen(0);
+    server = createApp(db, { auth: false, directions }).listen(0);
     await new Promise((r) => server.once('listening', r));
     base = `http://127.0.0.1:${server.address().port}/api/v1/navigate`;
   });
@@ -122,7 +122,7 @@ describe('GET /api/v1/navigate/:code/route', () => {
 
 describe('route endpoint without routing configured', () => {
   it('returns 503', async () => {
-    const server = createApp({ query: async () => ({ rows: [] }) }).listen(0);
+    const server = createApp({ query: async () => ({ rows: [] }) }, { auth: false }).listen(0);
     await new Promise((r) => server.once('listening', r));
     const res = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/navigate/FC02SIMBP88/route?from=7.47,9.07`);
     server.close();
