@@ -100,6 +100,13 @@ paths:
           required: false
           description: Travel mode. There is no motorbike profile; use `driving` for dispatch bikes.
           schema: { type: string, enum: [driving, cycling, walking], default: driving }
+        - name: claim
+          in: query
+          required: false
+          description: |
+            Id of a claim on this building (from a shared `/h/{id}` link). If its owner marked
+            a gate, the route ends there (`destination.source: claim`).
+          schema: { type: string, format: uuid }
       responses:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/RateLimited' }
@@ -201,7 +208,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Claim' }
         '400':
-          description: '`INVALID_POSTCODE` or `INVALID_CLAIM`.'
+          description: '`INVALID_POSTCODE`, `INVALID_CLAIM`, or `GATE_TOO_FAR` (gate more than 30 m from the building).'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -248,6 +255,7 @@ paths:
                           id: { type: string, format: uuid }
                           label: { type: string }
                           delivery_notes: { type: string, nullable: true }
+                          gate: { $ref: '#/components/schemas/Gate' }
                           status: { $ref: '#/components/schemas/ClaimStatus' }
                           created_at: { type: string, format: date-time }
         '404':
@@ -479,6 +487,10 @@ components:
               properties:
                 point: { $ref: '#/components/schemas/LngLat' }
                 kind: { type: string, enum: [gate, center] }
+                source:
+                  type: string
+                  enum: [claim, map, building]
+                  description: '`claim`: the owner''s marked gate. `map`: an entrance from OpenStreetMap. `building`: the footprint center.'
             route:
               type: object
               properties:
@@ -520,12 +532,22 @@ components:
       type: string
       enum: [unverified, verified, rejected]
 
+    Gate:
+      type: object
+      nullable: true
+      description: The entrance riders should use, marked by the claimant. Must be within 30 m of the building.
+      example: { lng: 7.48555, lat: 9.06762 }
+      properties:
+        lng: { type: number, example: 7.48555 }
+        lat: { type: number, example: 9.06762 }
+
     ClaimCreate:
       type: object
       required: [label]
       properties:
         label: { type: string, minLength: 1, maxLength: 80, example: Flat 3B }
         delivery_notes: { type: string, maxLength: 500, example: 'Blue gate on the left, ring twice' }
+        gate: { $ref: '#/components/schemas/Gate' }
 
     Claim:
       type: object
@@ -535,5 +557,6 @@ components:
         formatted: { type: string, example: FC 02 SIM BP 87 }
         label: { type: string }
         delivery_notes: { type: string, nullable: true }
+        gate: { $ref: '#/components/schemas/Gate' }
         status: { $ref: '#/components/schemas/ClaimStatus' }
         created_at: { type: string, format: date-time }

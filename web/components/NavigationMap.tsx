@@ -8,6 +8,7 @@ import {
   MAPBOX_TOKEN,
   baseMapOptions,
   buildingCamera,
+  createGateElement,
   createPinElement,
   prefersReducedMotion,
   setHighlightedBuilding,
@@ -18,7 +19,7 @@ import {
   type LightPreset,
 } from '@/lib/map';
 import ShareButtons from '@/components/ShareButtons';
-import { normalizePostcode, type Claim, type NavigateResponse, type Verification } from '@/lib/postcode';
+import { normalizePostcode, type Claim, type Gate, type NavigateResponse, type Verification } from '@/lib/postcode';
 
 // The map opens over all of Nigeria, then flies into Wuse 2, Abuja (the MVP pilot area).
 const NIGERIA_VIEW = { center: [8.6753, 9.082] as [number, number], zoom: 5.3, pitch: 0, bearing: 0 };
@@ -38,10 +39,14 @@ export default function NavigationMap() {
   const abortRef = useRef<AbortController | null>(null);
   const stopOrbit = useRef<() => void>(() => {});
   const stopPulse = useRef<() => void>(() => {});
+  const gateMarkerRef = useRef<Marker | null>(null);
 
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const [light, setLight] = useState<LightPreset>('dusk');
+  // Gate being marked for a claim: picking = the next map click places it.
+  const [gate, setGate] = useState<Gate | null>(null);
+  const [pickingGate, setPickingGate] = useState(false);
 
   // ---- Map initialisation ---------------------------------------------------
   useEffect(() => {
@@ -78,6 +83,7 @@ export default function NavigationMap() {
       stopOrbit.current();
       stopPulse.current();
       markerRef.current?.remove();
+      gateMarkerRef.current?.remove();
       mapRef.current?.remove();
       mapRef.current = null;
     };
@@ -94,8 +100,9 @@ export default function NavigationMap() {
     await resolveAndShow(`/api/v1/navigate/${encodeURIComponent(code)}`, 'fly');
   }
 
-  // Map click: find the building under the pointer and show its code.
+  // Map click: place the gate while marking one, otherwise find the building under the pointer.
   async function handleMapClick(lng: number, lat: number) {
+    if (pickingGate) return placeGate(lng, lat);
     const result = await resolveAndShow(`/api/v1/buildings/at?lng=${lng}&lat=${lat}`, 'stay');
     if (result) setQuery(result.formatted);
   }
@@ -107,6 +114,7 @@ export default function NavigationMap() {
     const controller = new AbortController();
     abortRef.current = controller;
     setStatus({ kind: 'loading' });
+    await clearGate(); // a gate belongs to the building being claimed
 
     try {
       const res = await fetch(url, { signal: controller.signal });
@@ -149,6 +157,41 @@ export default function NavigationMap() {
     });
     // Once there, slowly circle the building until the user takes over.
     if (camera === 'fly') map.once('moveend', () => (stopOrbit.current = startOrbit(map)));
+  }
+
+  // ---- Gate marking (for claims) ---------------------------------------------
+  async function startPickingGate() {
+    const map = await mapReady.current;
+    if (!map) return;
+    stopOrbit.current();
+    setPickingGate(true);
+    map.getCanvas().style.cursor = 'crosshair';
+  }
+
+  async function placeGate(lng: number, lat: number) {
+    const map = await mapReady.current;
+    if (!map) return;
+    setPickingGate(false);
+    map.getCanvas().style.cursor = '';
+    setGate({ lng, lat });
+    if (!gateMarkerRef.current) {
+      const { default: mapboxgl } = await import('mapbox-gl');
+      const marker = new mapboxgl.Marker({ element: createGateElement(), draggable: true });
+      marker.on('dragend', () => {
+        const p = marker.getLngLat();
+        setGate({ lng: p.lng, lat: p.lat });
+      });
+      gateMarkerRef.current = marker;
+    }
+    gateMarkerRef.current.setLngLat([lng, lat]).addTo(map);
+  }
+
+  async function clearGate() {
+    gateMarkerRef.current?.remove();
+    setGate(null);
+    setPickingGate(false);
+    const map = await mapReady.current;
+    if (map) map.getCanvas().style.cursor = '';
   }
 
   async function changeLight(preset: LightPreset) {
@@ -211,7 +254,16 @@ export default function NavigationMap() {
           </p>
         )}
 
-        {status.kind === 'found' && <ResultCard key={status.result.code} result={status.result} />}
+        {status.kind === 'found' && (
+          <ResultCard
+            key={status.result.code}
+            result={status.result}
+            gate={gate}
+            pickingGate={pickingGate}
+            onPickGate={startPickingGate}
+            onClearGate={clearGate}
+          />
+        )}
       </div>
 
       {MAPBOX_TOKEN && (
@@ -257,7 +309,14 @@ function VerificationBadge({ verification }: { verification: Verification }) {
   );
 }
 
-function ResultCard({ result }: { result: NavigateResponse }) {
+type GateControls = {
+  gate: Gate | null;
+  pickingGate: boolean;
+  onPickGate: () => void;
+  onClearGate: () => void;
+};
+
+function ResultCard({ result, ...gateControls }: { result: NavigateResponse } & GateControls) {
   const props: Record<string, unknown> = result.building?.properties ?? {};
   const name = typeof props.name === 'string' ? props.name : null;
   const type = typeof props.building_type === 'string' ? props.building_type.replace('_', ' ') : null;
@@ -293,7 +352,7 @@ function ResultCard({ result }: { result: NavigateResponse }) {
           Rider view: route a delivery here
         </Link>
       )}
-      {result.building && <ClaimPanel code={result.code} formatted={result.formatted} />}
+      {result.building && <ClaimPanel code={result.code} formatted={result.formatted} {...gateControls} />}
     </div>
   );
 }
@@ -307,7 +366,14 @@ type ClaimState =
   | { kind: 'saving' }
   | { kind: 'claimed'; claim: Claim };
 
-function ClaimPanel({ code, formatted }: { code: string; formatted: string }) {
+function ClaimPanel({
+  code,
+  formatted,
+  gate,
+  pickingGate,
+  onPickGate,
+  onClearGate,
+}: { code: string; formatted: string } & GateControls) {
   const [state, setState] = useState<ClaimState>({ kind: 'closed' });
   const [label, setLabel] = useState('');
   const [notes, setNotes] = useState('');
@@ -323,7 +389,7 @@ function ClaimPanel({ code, formatted }: { code: string; formatted: string }) {
       const res = await fetch(`/api/v1/buildings/${encodeURIComponent(code)}/claims`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label, delivery_notes: notes }),
+        body: JSON.stringify({ label, delivery_notes: notes, gate }),
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.message ?? `Claim failed (HTTP ${res.status}).`);
@@ -351,6 +417,7 @@ function ClaimPanel({ code, formatted }: { code: string; formatted: string }) {
       <div className="mt-3 rounded-lg bg-emerald-500/10 p-3 ring-1 ring-emerald-400/30">
         <p className="font-medium text-emerald-300">Claimed as “{state.claim.label}”</p>
         {state.claim.delivery_notes && <p className="mt-1 text-slate-300">{state.claim.delivery_notes}</p>}
+        {state.claim.gate && <p className="mt-1 text-xs text-amber-300">Riders will be routed to your gate.</p>}
         <p className="mt-3 text-xs text-slate-400">Share this link with riders, family or a store checkout:</p>
         <a href={shareUrl} target="_blank" rel="noopener" className="mt-1 block truncate font-mono text-xs text-[#39FF14] underline">
           {shareUrl}
@@ -388,6 +455,33 @@ function ClaimPanel({ code, formatted }: { code: string; formatted: string }) {
           className="mt-1 w-full resize-none rounded-lg bg-slate-800 px-3 py-2 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#39FF14]"
         />
       </label>
+      <div className="rounded-lg bg-slate-800/60 px-3 py-2">
+        <p className="text-xs text-slate-400">Gate for riders (recommended)</p>
+        {pickingGate ? (
+          <div className="mt-1 flex items-center justify-between gap-2 text-sm">
+            <span className="text-amber-300">Tap the map where riders should enter.</span>
+            <button type="button" onClick={onClearGate} className="shrink-0 text-slate-400 hover:text-slate-200">
+              Cancel
+            </button>
+          </div>
+        ) : gate ? (
+          <div className="mt-1 flex items-center justify-between gap-2 text-sm">
+            <span className="text-slate-200">
+              <span className="mr-1 inline-grid h-4 w-4 place-items-center rounded bg-amber-400 text-[10px] font-bold text-slate-950">
+                G
+              </span>
+              Gate marked. Drag it to adjust.
+            </span>
+            <button type="button" onClick={onClearGate} className="shrink-0 text-slate-400 hover:text-slate-200">
+              Remove
+            </button>
+          </div>
+        ) : (
+          <button type="button" onClick={onPickGate} className="mt-1 text-sm font-medium text-amber-300 hover:text-amber-200">
+            Mark the gate on the map
+          </button>
+        )}
+      </div>
       {state.kind === 'editing' && state.error && (
         <p role="alert" className="text-sm text-red-300">
           {state.error}

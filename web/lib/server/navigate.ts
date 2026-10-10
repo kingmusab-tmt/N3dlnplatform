@@ -47,13 +47,19 @@ export function notFoundMessage(code: string, status: VerificationStatus) {
   return `No building is registered for ${formatted}.`;
 }
 
-/** Riders should end at the gate when one is mapped, otherwise the building center. */
-export function destinationFor(row: BuildingRow): { point: LngLat; kind: 'gate' | 'center' } {
+export type Destination = { point: LngLat; kind: 'gate' | 'center'; source: 'claim' | 'map' | 'building' };
+
+/**
+ * Riders should end at the gate when one is mapped (from OpenStreetMap
+ * entrances), otherwise the building center. An owner's own gate on a claim
+ * overrides this; see the route endpoint.
+ */
+export function destinationFor(row: BuildingRow): Destination {
   const gate = row.metadata?.gate;
   if (Number.isFinite(gate?.lng) && Number.isFinite(gate?.lat)) {
-    return { point: [gate.lng, gate.lat], kind: 'gate' };
+    return { point: [gate.lng, gate.lat], kind: 'gate', source: 'map' };
   }
-  return { point: row.center.coordinates, kind: 'center' };
+  return { point: row.center.coordinates, kind: 'center', source: 'building' };
 }
 
 /** Straight on-foot leg from where the road route ends to the destination. */

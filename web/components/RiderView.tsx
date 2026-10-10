@@ -35,7 +35,11 @@ function simulatedStart([lng, lat]: LngLat): LngLat {
   return [lng - 0.0105, lat + 0.0085];
 }
 
-export default function RiderView({ initialCode }: { initialCode?: string }) {
+/**
+ * @param claimId From a shared link: routes to the gate its owner marked, but
+ *   only for the code the link was for, not for later searches.
+ */
+export default function RiderView({ initialCode, claimId }: { initialCode?: string; claimId?: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapReady = useRef<Promise<MapboxMap> | null>(null);
   const riderMarker = useRef<Marker | null>(null);
@@ -134,7 +138,8 @@ export default function RiderView({ initialCode }: { initialCode?: string }) {
     setStatus({ kind: 'loading' });
 
     try {
-      const url = `/api/v1/navigate/${forCode}/route?from=${from[0].toFixed(6)},${from[1].toFixed(6)}&profile=${withProfile}`;
+      const claimParam = claimId && initialCode && normalizePostcode(initialCode) === forCode ? `&claim=${encodeURIComponent(claimId)}` : '';
+      const url = `/api/v1/navigate/${forCode}/route?from=${from[0].toFixed(6)},${from[1].toFixed(6)}&profile=${withProfile}${claimParam}`;
       const res = await fetch(url, { signal: controller.signal });
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.message ?? `Routing failed (HTTP ${res.status}).`);
@@ -348,7 +353,13 @@ export default function RiderView({ initialCode }: { initialCode?: string }) {
             {route.lastMile && (
               <p className="mt-1 text-xs text-slate-400">
                 <span style={{ color: NEON_GREEN }}>┄</span> Last {formatDistance(route.lastMile.distance_m)} on foot from
-                the road to the {route.destination.kind === 'gate' ? 'gate' : 'building center (no gate mapped)'}.
+                the road to the{' '}
+                {route.destination.source === 'claim'
+                  ? 'gate marked by the owner'
+                  : route.destination.kind === 'gate'
+                    ? 'gate'
+                    : 'building center (no gate mapped)'}
+                .
               </p>
             )}
 

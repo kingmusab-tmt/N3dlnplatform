@@ -61,12 +61,15 @@ export type NavigateResponse = {
   nipostPoint?: [number, number];
 };
 
+export type Gate = { lng: number; lat: number };
+
 export type Claim = {
   id: string;
   code: string;
   formatted: string;
   label: string;
   delivery_notes: string | null;
+  gate: Gate | null;
   status: 'unverified' | 'verified' | 'rejected';
   created_at: string;
 };
@@ -76,9 +79,13 @@ export type SharedPlace = NavigateResponse & {
   claim: Omit<Claim, 'code' | 'formatted'>;
 };
 
-/** Where a rider should head: the mapped gate if known, else the building center. */
-export function destinationOf(place: NavigateResponse): [number, number] {
-  const gate = place.building?.properties.gate as { lng?: number; lat?: number } | undefined;
+/**
+ * Where a rider should head: the owner's marked gate on a shared place, then
+ * a gate mapped in OpenStreetMap, else the building center.
+ */
+export function destinationOf(place: NavigateResponse & { claim?: { gate: Gate | null } }): [number, number] {
+  if (place.claim?.gate) return [place.claim.gate.lng, place.claim.gate.lat];
+  const gate = place.building?.properties.gate as Partial<Gate> | undefined;
   return typeof gate?.lng === 'number' && typeof gate?.lat === 'number' ? [gate.lng, gate.lat] : place.center;
 }
 
@@ -92,7 +99,7 @@ export type RouteProfile = 'driving' | 'cycling' | 'walking';
 export type RouteResponse = NavigateResponse & {
   profile: RouteProfile;
   origin: [number, number];
-  destination: { point: [number, number]; kind: 'gate' | 'center' };
+  destination: { point: [number, number]; kind: 'gate' | 'center'; source: 'claim' | 'map' | 'building' };
   route: {
     geometry: { type: 'LineString'; coordinates: [number, number][] };
     distance_m: number;

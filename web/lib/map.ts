@@ -193,3 +193,18 @@ export function createPinElement() {
   `;
   return el;
 }
+
+/** Marker for the entrance riders should use. */
+export function createGateElement() {
+  const el = document.createElement('div');
+  el.setAttribute('aria-label', 'Gate');
+  el.title = 'Gate';
+  el.textContent = 'G';
+  el.style.cssText = `
+    width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center;
+    font: 700 13px/1 system-ui, sans-serif; color: #0b0f14; background: #fbbf24;
+    border: 2px solid #0b0f14; box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.35), 0 0 12px rgba(251, 191, 36, 0.8);
+    cursor: grab;
+  `;
+  return el;
+}

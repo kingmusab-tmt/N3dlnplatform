@@ -8,6 +8,7 @@ import {
   MAPBOX_TOKEN,
   baseMapOptions,
   buildingCamera,
+  createGateElement,
   createPinElement,
   setHighlightedBuilding,
   setupScene,
@@ -48,6 +49,9 @@ export default function SharedPlaceView({ place }: { place: SharedPlace }) {
         setHighlightedBuilding(map, place);
         stopPulse = startPulse(map);
         new mapboxgl.Marker({ element: createPinElement(), anchor: 'bottom' }).setLngLat(place.center).addTo(map);
+        if (place.claim.gate) {
+          new mapboxgl.Marker({ element: createGateElement() }).setLngLat([place.claim.gate.lng, place.claim.gate.lat]).addTo(map);
+        }
         map.flyTo({ ...buildingCamera(place.center), speed: 0.6, essential: true });
         map.once('moveend', () => {
           if (map) stopOrbit = startOrbit(map);
@@ -78,6 +82,15 @@ export default function SharedPlaceView({ place }: { place: SharedPlace }) {
           <p className="font-mono text-xl tracking-widest text-[#39FF14]">{place.formatted}</p>
           {name && <p className="mt-1 text-slate-400">{name}</p>}
 
+          {place.claim.gate && (
+            <p className="mt-2 text-xs text-amber-300">
+              <span className="mr-1 inline-grid h-4 w-4 place-items-center rounded bg-amber-400 text-[10px] font-bold text-slate-950">
+                G
+              </span>
+              Use the gate marked on the map. Directions lead there.
+            </p>
+          )}
+
           {place.claim.delivery_notes && (
             <p className="mt-3 whitespace-pre-line rounded-lg bg-slate-800/80 px-3 py-2 text-slate-200">
               {place.claim.delivery_notes}
@@ -94,7 +107,7 @@ export default function SharedPlaceView({ place }: { place: SharedPlace }) {
               Directions
             </a>
             <Link
-              href={`/rider?code=${place.code}`}
+              href={`/rider?code=${place.code}&claim=${place.claim.id}`}
               className="block rounded-lg border border-sky-400/40 px-3 py-2 text-center font-medium text-sky-300 transition hover:bg-sky-400/10"
             >
               Rider view

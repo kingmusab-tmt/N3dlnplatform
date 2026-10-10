@@ -145,7 +145,7 @@ describe('GET /api/v1/navigate/:code/route', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(directionsCalls.at(-1)).toEqual({ from: [7.47, 9.07], to: [7.4854694, 9.0675872], profile: 'driving' });
-    expect(body.destination).toEqual({ point: [7.4854694, 9.0675872], kind: 'center' });
+    expect(body.destination).toEqual({ point: [7.4854694, 9.0675872], kind: 'center', source: 'building' });
     expect(body.route.distance_m).toBe(4005);
     expect(body.route.snappedDestination).toBeUndefined();
     expect(body.lastMile.geometry.coordinates).toEqual([[7.4857, 9.0678], [7.4854694, 9.0675872]]);
@@ -156,8 +156,26 @@ describe('GET /api/v1/navigate/:code/route', () => {
     const gated = { ...ROW, metadata: { gate: { lng: 7.4854, lat: 9.0675 } } };
     useDeps({ db: { query: async () => ({ rows: [gated] }) }, directions });
     const body = await (await routeFor('FC02SIMBP88', '?from=7.47,9.07&profile=cycling')).json();
-    expect(body.destination).toEqual({ point: [7.4854, 9.0675], kind: 'gate' });
+    expect(body.destination).toEqual({ point: [7.4854, 9.0675], kind: 'gate', source: 'map' });
     expect(directionsCalls.at(-1)).toMatchObject({ profile: 'cycling' });
+  });
+
+  it("routes to the gate an owner marked on their claim", async () => {
+    const CLAIM = '3f2b8c1e-9a4d-4e7b-8c2a-1d5e6f7a8b9c';
+    const db = {
+      async query(sql: string, params: any[] = []) {
+        if (sql.includes('FROM claims c')) {
+          return { rows: params[0] === CLAIM && params[1] === ROW.nipost_code ? [{ lng: 7.48551, lat: 9.06752 }] : [] };
+        }
+        return { rows: [ROW] };
+      },
+    };
+    useDeps({ db, directions });
+    const owned = await (await routeFor('FC02SIMBP88', `?from=7.47,9.07&claim=${CLAIM}`)).json();
+    expect(owned.destination).toEqual({ point: [7.48551, 9.06752], kind: 'gate', source: 'claim' });
+    // An unknown or malformed claim falls back to the building's own destination.
+    const other = await (await routeFor('FC02SIMBP88', '?from=7.47,9.07&claim=not-a-uuid')).json();
+    expect(other.destination.source).toBe('building');
   });
 
   it('validates input and reports routing failures', async () => {
@@ -199,19 +217,26 @@ describe('GET /api/v1/buildings/at', () => {
 
 describe('claims', () => {
   const CLAIM_ID = '3f2b8c1e-9a4d-4e7b-8c2a-1d5e6f7a8b9c';
+  /** Silverbird's footprint is about 10 m from (7.4855, 9.0676); further points are "too far". */
   function claimsDb() {
     const inserted: unknown[][] = [];
     return {
       inserted,
       async query(sql: string, params: any[] = []) {
+        if (sql.includes('gate_distance_m')) {
+          const [code, lng, lat] = params;
+          if (code !== ROW.nipost_code) return { rows: [] };
+          const distance = lng == null ? null : Math.hypot(lng - 7.4855, lat - 9.0676) * 111_000;
+          return { rows: [{ id: ROW.id, gate_distance_m: distance }] };
+        }
         if (sql.includes('INSERT INTO claims')) {
           inserted.push(params);
-          if (params[0] !== ROW.nipost_code) return { rows: [] };
-          return { rows: [{ id: CLAIM_ID, label: params[1], delivery_notes: params[2], status: 'unverified', created_at: '2026-10-10T00:00:00Z' }] };
+          const [, label, notes, lng, lat] = params;
+          return { rows: [{ id: CLAIM_ID, label, delivery_notes: notes, status: 'unverified', created_at: '2026-10-10T00:00:00Z', gate_lng: lng, gate_lat: lat }] };
         }
         if (sql.includes('FROM claims c')) {
           return params[0] === CLAIM_ID
-            ? { rows: [{ ...ROW, claim_id: CLAIM_ID, label: 'Home', delivery_notes: 'Blue gate', status: 'unverified', created_at: '2026-10-10T00:00:00Z' }] }
+            ? { rows: [{ ...ROW, claim_id: CLAIM_ID, label: 'Home', delivery_notes: 'Blue gate', status: 'unverified', created_at: '2026-10-10T00:00:00Z', gate_lng: 7.48551, gate_lat: 9.06752 }] }
             : { rows: [] };
         }
         return { rows: [] };
@@ -225,7 +250,22 @@ describe('claims', () => {
     useDeps({ db: claimsDb() });
     const res = await claim('fc-02-sim-bp-88', { label: '  Musa’s office ', delivery_notes: 'Gate 3, ask for Tunde' });
     expect(res.status).toBe(201);
-    expect(await res.json()).toMatchObject({ id: CLAIM_ID, code: 'FC02SIMBP88', label: 'Musa’s office', delivery_notes: 'Gate 3, ask for Tunde', status: 'unverified' });
+    expect(await res.json()).toMatchObject({ id: CLAIM_ID, code: 'FC02SIMBP88', label: 'Musa’s office', delivery_notes: 'Gate 3, ask for Tunde', gate: null, status: 'unverified' });
+  });
+
+  it('stores a gate near the building and rejects one too far away', async () => {
+    const db = claimsDb();
+    useDeps({ db });
+    const near = await claim('FC02SIMBP88', { label: 'Home', gate: { lng: 7.48555, lat: 9.06762 } });
+    expect(near.status).toBe(201);
+    expect((await near.json()).gate).toEqual({ lng: 7.48555, lat: 9.06762 });
+    expect(db.inserted[0]).toEqual([ROW.id, 'Home', null, 7.48555, 9.06762]);
+
+    const far = await claim('FC02SIMBP88', { label: 'Home', gate: { lng: 7.4875, lat: 9.0676 } }); // ~220 m off
+    expect(far.status).toBe(400);
+    expect((await far.json()).error).toBe('GATE_TOO_FAR');
+    expect((await claim('FC02SIMBP88', { label: 'Home', gate: { lng: 'x', lat: 9 } })).status).toBe(400);
+    expect(db.inserted).toHaveLength(1);
   });
 
   it('rejects bad input, unknown codes, and too many claims per hour', async () => {
@@ -247,7 +287,7 @@ describe('claims', () => {
     expect(res.headers.get('cache-control')).toBe('private, no-store');
     const body = await res.json();
     expect(body.formatted).toBe('FC 02 SIM BP 88');
-    expect(body.claim).toMatchObject({ id: CLAIM_ID, label: 'Home', delivery_notes: 'Blue gate' });
+    expect(body.claim).toMatchObject({ id: CLAIM_ID, label: 'Home', delivery_notes: 'Blue gate', gate: { lng: 7.48551, lat: 9.06752 } });
   });
 
   it('404s for unknown and malformed ids', async () => {
