@@ -1,5 +1,23 @@
 import { formatPostcode, parsePostcode } from '../postcode';
 
+/**
+ * Height the 3D map draws a building at, as SQL. OSM height/levels when known
+ * (the importer stores them as height_m); otherwise an estimate of 1-4 storeys
+ * (3.2 m each) from footprint area, varied by id so streets don't look
+ * uniform. Shared by the vector tiles and lookup responses, so a highlighted
+ * building always matches its neighbours. `t` is an optional table alias.
+ */
+export function renderHeightSql(t = '') {
+  const p = t ? `${t}.` : '';
+  return `COALESCE(
+    NULLIF(${p}metadata->>'height_m', '')::float,
+    CASE WHEN ST_Area(${p}geom::geography) > 800 THEN 9.6
+         WHEN ST_Area(${p}geom::geography) > 250 THEN 6.4
+         ELSE 3.2 END
+    + (abs(hashtext(${p}id::text)) % 2) * 3.2
+  )`;
+}
+
 // Postgres builds the GeoJSON itself, so geometry never round-trips through JS.
 // ST_AsGeoJSON(..., 7) keeps 7 decimal places (~1 cm), plenty for a gate.
 export const BUILDING_COLUMNS = `
@@ -8,7 +26,8 @@ export const BUILDING_COLUMNS = `
     metadata,
     ST_AsGeoJSON(geom, 7)::json         AS polygon,
     ST_AsGeoJSON(center_point, 7)::json AS center,
-    json_build_array(ST_XMin(geom), ST_YMin(geom), ST_XMax(geom), ST_YMax(geom)) AS bbox
+    json_build_array(ST_XMin(geom), ST_YMin(geom), ST_XMax(geom), ST_YMax(geom)) AS bbox,
+    ${renderHeightSql()} AS render_height_m
 `;
 
 export const LOOKUP_BY_CODE_SQL = `
@@ -39,6 +58,7 @@ export type BuildingRow = {
   polygon: { type: 'Polygon'; coordinates: number[][][] };
   center: { type: 'Point'; coordinates: [number, number] };
   bbox: [number, number, number, number];
+  render_height_m?: number;
   distance_m?: number;
 };
 
@@ -57,7 +77,11 @@ export function buildingBody(code: string, row: BuildingRow, extra: Record<strin
       type: 'Feature',
       id: row.id,
       geometry: row.polygon,
-      properties: { ...row.metadata, nipost_code: code },
+      properties: {
+        ...row.metadata,
+        nipost_code: code,
+        ...(row.render_height_m != null && { render_height_m: Math.round(row.render_height_m * 10) / 10 }),
+      },
     },
     centerPoint: {
       type: 'Feature',

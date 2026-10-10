@@ -7,10 +7,11 @@ import { boundsOf, distanceMetres, measureLine, pointAlong, type LngLat } from '
 import {
   MAPBOX_TOKEN,
   NEON_GREEN,
-  addBuildingLayers,
+  baseMapOptions,
   buildingCamera,
   createPinElement,
   setHighlightedBuilding,
+  setupScene,
 } from '@/lib/map';
 import { normalizePostcode, type NavigateResponse, type RouteProfile, type RouteResponse } from '@/lib/postcode';
 
@@ -61,8 +62,7 @@ export default function RiderView({ initialCode }: { initialCode?: string }) {
       mapboxgl.accessToken = MAPBOX_TOKEN;
       map = new mapboxgl.Map({
         container: containerRef.current!,
-        style: 'mapbox://styles/mapbox/dark-v11',
-        antialias: true,
+        ...baseMapOptions('dusk'),
         center: [7.4789, 9.0777],
         zoom: 14,
         pitch: 40,
@@ -72,7 +72,7 @@ export default function RiderView({ initialCode }: { initialCode?: string }) {
       return new Promise<MapboxMap>((resolve) => {
         map!.on('style.load', () => {
           if (cancelled || !map) return;
-          addBuildingLayers(map);
+          setupScene(map);
           addRouteLayers(map);
           map.on('click', (e) => mapClickRef.current([e.lngLat.lng, e.lngLat.lat]));
           resolve(map);
@@ -277,7 +277,8 @@ export default function RiderView({ initialCode }: { initialCode?: string }) {
 
   return (
     <div className="relative h-full w-full">
-      <div ref={containerRef} className="absolute inset-0" />
+      {/* Inline style: mapbox-gl.css sets .mapboxgl-map { position: relative }, which beats Tailwind's layered utilities. */}
+      <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
       {!MAPBOX_TOKEN && (
         <div className="absolute inset-0 grid place-items-center p-6 text-center text-slate-300">
@@ -441,22 +442,25 @@ function addRouteLayers(map: MapboxMap) {
     id: 'rider-route-casing',
     type: 'line',
     source: ROUTE_SOURCE,
+    slot: 'middle',
     layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': '#0c4a6e', 'line-width': 10 },
+    paint: { 'line-color': '#0c4a6e', 'line-width': 10, 'line-emissive-strength': 1 },
   });
   map.addLayer({
     id: 'rider-route-line',
     type: 'line',
     source: ROUTE_SOURCE,
+    slot: 'middle',
     layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': '#38bdf8', 'line-width': 5 },
+    paint: { 'line-color': '#38bdf8', 'line-width': 5, 'line-emissive-strength': 1 },
   });
   map.addLayer({
     id: 'rider-last-mile',
     type: 'line',
     source: LAST_MILE_SOURCE,
+    slot: 'middle',
     layout: { 'line-cap': 'round' },
-    paint: { 'line-color': NEON_GREEN, 'line-width': 3, 'line-dasharray': [1, 2] },
+    paint: { 'line-color': NEON_GREEN, 'line-width': 3, 'line-dasharray': [1, 2], 'line-emissive-strength': 1 },
   });
 }
 

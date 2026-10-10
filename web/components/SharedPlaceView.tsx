@@ -6,10 +6,13 @@ import { useEffect, useRef, useState } from 'react';
 import ShareButtons from '@/components/ShareButtons';
 import {
   MAPBOX_TOKEN,
-  addBuildingLayers,
+  baseMapOptions,
   buildingCamera,
   createPinElement,
   setHighlightedBuilding,
+  setupScene,
+  startOrbit,
+  startPulse,
 } from '@/lib/map';
 import { destinationOf, googleMapsDirectionsUrl, type SharedPlace } from '@/lib/postcode';
 
@@ -24,6 +27,8 @@ export default function SharedPlaceView({ place }: { place: SharedPlace }) {
     if (!MAPBOX_TOKEN || !containerRef.current) return;
     let map: MapboxMap | null = null;
     let cancelled = false;
+    let stopOrbit = () => {};
+    let stopPulse = () => {};
 
     import('mapbox-gl').then(({ default: mapboxgl }) => {
       if (cancelled) return;
@@ -31,8 +36,7 @@ export default function SharedPlaceView({ place }: { place: SharedPlace }) {
       // Start a little wide, then glide in so the viewer sees the neighbourhood first.
       map = new mapboxgl.Map({
         container: containerRef.current!,
-        style: 'mapbox://styles/mapbox/dark-v11',
-        antialias: true,
+        ...baseMapOptions('dusk'),
         center: place.center,
         zoom: 15.5,
         pitch: 30,
@@ -40,15 +44,21 @@ export default function SharedPlaceView({ place }: { place: SharedPlace }) {
       map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), 'bottom-right');
       map.on('style.load', () => {
         if (!map) return;
-        addBuildingLayers(map);
+        setupScene(map);
         setHighlightedBuilding(map, place);
+        stopPulse = startPulse(map);
         new mapboxgl.Marker({ element: createPinElement(), anchor: 'bottom' }).setLngLat(place.center).addTo(map);
         map.flyTo({ ...buildingCamera(place.center), speed: 0.6, essential: true });
+        map.once('moveend', () => {
+          if (map) stopOrbit = startOrbit(map);
+        });
       });
     });
 
     return () => {
       cancelled = true;
+      stopOrbit();
+      stopPulse();
       map?.remove();
     };
   }, [place]);
@@ -58,7 +68,8 @@ export default function SharedPlaceView({ place }: { place: SharedPlace }) {
 
   return (
     <div className="relative h-full w-full">
-      <div ref={containerRef} className="absolute inset-0" />
+      {/* Inline style: mapbox-gl.css sets .mapboxgl-map { position: relative }, which beats Tailwind's layered utilities. */}
+      <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
       <div className="absolute inset-x-4 bottom-4 sm:bottom-auto sm:left-4 sm:right-auto sm:top-4 sm:w-[400px]">
         <div className="rounded-xl border border-white/10 bg-slate-900/90 p-4 text-sm shadow-2xl backdrop-blur">

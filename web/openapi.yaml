@@ -39,6 +39,8 @@ tags:
     description: Rider routes to a building.
   - name: Claims
     description: Owner-submitted home profiles and shareable links.
+  - name: Maps
+    description: Map data for drawing the platform's buildings.
   - name: System
 
 paths:
@@ -254,6 +256,42 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /api/v1/tiles/buildings/{z}/{x}/{y}:
+    get:
+      tags: [Maps]
+      operationId: buildingTiles
+      summary: Building footprints as vector tiles
+      description: |
+        Every mapped building as [Mapbox Vector Tiles](https://github.com/mapbox/vector-tile-spec),
+        for drawing them in 3D (e.g. a Mapbox GL `fill-extrusion` layer). Layer `buildings`;
+        each feature's id is the building id, with properties `height` (metres, from OSM
+        or estimated from the footprint), `height_known` and `type`.
+
+        Use the template `/api/v1/tiles/buildings/{z}/{x}/{y}.mvt`. Tiles exist from zoom 13;
+        lower zooms return 204. Public and cacheable, so no API key is needed.
+      security: []
+      parameters:
+        - { name: z, in: path, required: true, schema: { type: integer, minimum: 0, maximum: 22, example: 15 } }
+        - { name: x, in: path, required: true, schema: { type: integer, minimum: 0, example: 17065 } }
+        - name: y
+          in: path
+          required: true
+          description: Tile row, with or without the `.mvt` suffix.
+          schema: { type: string, example: 15555.mvt }
+      responses:
+        '200':
+          description: A vector tile.
+          content:
+            application/vnd.mapbox-vector-tile:
+              schema: { type: string, format: binary }
+        '204':
+          description: No buildings in this tile, or zoom below 13.
+        '400':
+          description: '`INVALID_TILE`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /api/v1/health:
     get:
       tags: [System]
@@ -364,7 +402,8 @@ components:
         nipost_code: { type: string, example: FC02SIMBP87 }
         name: { type: string, example: Silverbird Cinemas & Shopping Centre }
         building_type: { type: string, example: commercial }
-        height_m: { type: number, example: 12.8 }
+        height_m: { type: number, example: 12.8, description: Known height from OpenStreetMap. }
+        render_height_m: { type: number, example: 12.8, description: 'Height the 3D map draws: height_m if known, else an estimate from the footprint.' }
         floors: { type: number, example: 4 }
         source: { type: string, example: osm }
         code_source: { type: string, enum: [simulated, nipost] }

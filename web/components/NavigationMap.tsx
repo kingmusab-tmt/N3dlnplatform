@@ -4,18 +4,25 @@ import type { Map as MapboxMap, Marker } from 'mapbox-gl';
 import Link from 'next/link';
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import {
+  LIGHT_PRESETS,
   MAPBOX_TOKEN,
-  addBuildingLayers,
+  baseMapOptions,
   buildingCamera,
   createPinElement,
+  prefersReducedMotion,
   setHighlightedBuilding,
+  setLightPreset,
+  setupScene,
+  startOrbit,
+  startPulse,
+  type LightPreset,
 } from '@/lib/map';
 import ShareButtons from '@/components/ShareButtons';
 import { normalizePostcode, type Claim, type NavigateResponse, type Verification } from '@/lib/postcode';
 
-
-// Wuse 2, Abuja — the MVP pilot area.
-const INITIAL_VIEW = { center: [7.4789, 9.0777] as [number, number], zoom: 15.5, pitch: 45, bearing: -17.6 };
+// The map opens over all of Nigeria, then flies into Wuse 2, Abuja (the MVP pilot area).
+const NIGERIA_VIEW = { center: [8.6753, 9.082] as [number, number], zoom: 5.3, pitch: 0, bearing: 0 };
+const PILOT_VIEW = { center: [7.4789, 9.0777] as [number, number], zoom: 15.8, pitch: 60, bearing: -28 };
 
 type Status =
   | { kind: 'idle' }
@@ -29,9 +36,12 @@ export default function NavigationMap() {
   const markerRef = useRef<Marker | null>(null);
   const mapReady = useRef<Promise<MapboxMap> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const stopOrbit = useRef<() => void>(() => {});
+  const stopPulse = useRef<() => void>(() => {});
 
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
+  const [light, setLight] = useState<LightPreset>('dusk');
 
   // ---- Map initialisation ---------------------------------------------------
   useEffect(() => {
@@ -42,9 +52,8 @@ export default function NavigationMap() {
       mapboxgl.accessToken = MAPBOX_TOKEN;
       const map = new mapboxgl.Map({
         container: containerRef.current!,
-        style: 'mapbox://styles/mapbox/dark-v11',
-        antialias: true,
-        ...INITIAL_VIEW,
+        ...baseMapOptions('dusk'),
+        ...NIGERIA_VIEW,
       });
       map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), 'bottom-right');
       mapRef.current = map;
@@ -52,8 +61,12 @@ export default function NavigationMap() {
       return new Promise<MapboxMap>((resolve) => {
         map.on('style.load', () => {
           if (cancelled) return;
-          addBuildingLayers(map);
+          setupScene(map);
+          stopPulse.current = startPulse(map);
           map.on('click', (e) => mapClickRef.current(e.lngLat.lng, e.lngLat.lat));
+          // Intro: sweep from the whole country down into the pilot area.
+          if (prefersReducedMotion()) map.jumpTo(PILOT_VIEW);
+          else map.flyTo({ ...PILOT_VIEW, duration: 7000, curve: 1.6, essential: true });
           resolve(map);
         });
       });
@@ -62,6 +75,8 @@ export default function NavigationMap() {
     return () => {
       cancelled = true;
       abortRef.current?.abort();
+      stopOrbit.current();
+      stopPulse.current();
       markerRef.current?.remove();
       mapRef.current?.remove();
       mapRef.current = null;
@@ -114,6 +129,7 @@ export default function NavigationMap() {
   }
 
   async function showBuilding(map: MapboxMap, result: NavigateResponse, camera: 'fly' | 'stay') {
+    stopOrbit.current();
     setHighlightedBuilding(map, result);
 
     const { default: mapboxgl } = await import('mapbox-gl');
@@ -131,12 +147,21 @@ export default function NavigationMap() {
       curve: 1.5,
       essential: true, // still animate for users with prefers-reduced-motion
     });
+    // Once there, slowly circle the building until the user takes over.
+    if (camera === 'fly') map.once('moveend', () => (stopOrbit.current = startOrbit(map)));
+  }
+
+  async function changeLight(preset: LightPreset) {
+    setLight(preset);
+    const map = await mapReady.current;
+    if (map) setLightPreset(map, preset);
   }
 
   // ---- Render ---------------------------------------------------------------
   return (
     <div className="relative h-full w-full">
-      <div ref={containerRef} className="absolute inset-0" />
+      {/* Inline style: mapbox-gl.css sets .mapboxgl-map { position: relative }, which beats Tailwind's layered utilities. */}
+      <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
       {!MAPBOX_TOKEN && (
         <div className="absolute inset-0 grid place-items-center p-6 text-center text-slate-300">
@@ -188,6 +213,29 @@ export default function NavigationMap() {
 
         {status.kind === 'found' && <ResultCard key={status.result.code} result={status.result} />}
       </div>
+
+      {MAPBOX_TOKEN && (
+        <div
+          role="radiogroup"
+          aria-label="Lighting"
+          className="absolute bottom-8 left-1/2 flex -translate-x-1/2 gap-1 rounded-lg border border-white/10 bg-slate-900/85 p-1 text-xs shadow-xl backdrop-blur"
+        >
+          {LIGHT_PRESETS.map((p) => (
+            <button
+              key={p.value}
+              type="button"
+              role="radio"
+              aria-checked={light === p.value}
+              onClick={() => changeLight(p.value)}
+              className={`rounded-md px-2.5 py-1 font-medium transition ${
+                light === p.value ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

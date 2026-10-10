@@ -5,6 +5,7 @@ import { GET as buildingAt } from '@/app/api/v1/buildings/at/route';
 import { GET as getClaim } from '@/app/api/v1/claims/[id]/route';
 import { GET as navigate } from '@/app/api/v1/navigate/[code]/route';
 import { GET as routeTo } from '@/app/api/v1/navigate/[code]/route/route';
+import { GET as tile } from '@/app/api/v1/tiles/buildings/[z]/[x]/[y]/route';
 import { hyphenatePostcode } from '@/lib/postcode';
 import { DirectionsError } from '@/lib/server/directions';
 import { NipostError, type NipostClient } from '@/lib/server/nipost';
@@ -253,6 +254,38 @@ describe('claims', () => {
     useDeps({ db: claimsDb() });
     for (const id of ['00000000-0000-0000-0000-000000000000', 'not-a-uuid']) {
       expect((await call(getClaim, `/api/v1/claims/${id}`, { params: { id } })).status).toBe(404);
+    }
+  });
+});
+
+describe('GET /api/v1/tiles/buildings/:z/:x/:y', () => {
+  const MVT = Buffer.from([0x1a, 0x02, 0x08, 0x01]);
+  const tileFor = (z: number, x: number, y: string) =>
+    call(tile, `/api/v1/tiles/buildings/${z}/${x}/${y}`, { params: { z: String(z), x: String(x), y }, web: false });
+
+  it('serves a cacheable vector tile without an API key', async () => {
+    const queries: unknown[][] = [];
+    useDeps({ db: { query: async (_sql, params = []) => (queries.push(params), { rows: [{ mvt: MVT }] }) } });
+    const res = await tileFor(15, 17065, '15555.mvt');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/vnd.mapbox-vector-tile');
+    expect(res.headers.get('cache-control')).toMatch(/public/);
+    expect(Buffer.from(await res.arrayBuffer())).toEqual(MVT);
+    expect(queries[0]).toEqual([15, 17065, 15555]);
+  });
+
+  it('returns 204 for empty tiles and low zooms without querying', async () => {
+    const queries: unknown[] = [];
+    useDeps({ db: { query: async (sql) => (queries.push(sql), { rows: [{ mvt: Buffer.alloc(0) }] }) } });
+    expect((await tileFor(15, 17065, '15555')).status).toBe(204);
+    expect((await tileFor(10, 533, '486.mvt')).status).toBe(204);
+    expect(queries).toHaveLength(1);
+  });
+
+  it('rejects out-of-range tile coordinates', async () => {
+    useDeps({ db: { query: async () => ({ rows: [] }) } });
+    for (const [z, x, y] of [[15, 99999, '1'], [15, 1, '-1'], [23, 0, '0'], [15, 1, 'abc']] as const) {
+      expect((await tileFor(z, x, y)).status).toBe(400);
     }
   });
 });
