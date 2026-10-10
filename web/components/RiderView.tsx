@@ -20,6 +20,20 @@ import { resolveMapMode } from '@/lib/mapMode';
 import { buildNavPlan, navProgress, type NavPlan } from '@/lib/navigation';
 import { normalizePostcode, type NavigateResponse, type RouteProfile, type RouteResponse } from '@/lib/postcode';
 import { createVehicleMarker, type VehicleMarker } from '@/lib/vehicles';
+import CustomerLinks from '@/components/rider/CustomerLinks';
+import PodForm, { type PodInput } from '@/components/rider/PodForm';
+import StopsPlanner, { type PlannedStop } from '@/components/rider/StopsPlanner';
+import {
+  RunApiError,
+  completeStop,
+  createRun,
+  endRun,
+  loadRun,
+  reportPosition,
+  runFromUrl,
+  runUrl,
+  type RunState,
+} from '@/lib/rider/run';
 
 const ROUTE_SOURCE = 'rider-route';
 const LAST_MILE_SOURCE = 'rider-last-mile';
@@ -46,7 +60,13 @@ type Ride =
   | { kind: 'simulated' }
   | { kind: 'locating' }
   | { kind: 'navigating'; remaining_m: number; next: { instruction: string; in_m: number } | null; accuracy_m: number; rerouting: boolean }
-  | { kind: 'delivered' };
+  /** At a stop: proof of delivery. */
+  | { kind: 'pod'; saving: boolean; error: string | null }
+  /** Every stop in the run is done. */
+  | { kind: 'run-done' };
+
+// Report the rider's position to the run (customers' tracking pages) this often.
+const REPORT_EVERY_MS = 10_000;
 
 /** Pretend rider start ~1.5 km north-west of the destination, for demos away from Abuja. */
 function simulatedStart([lng, lat]: LngLat): LngLat {
@@ -63,6 +83,9 @@ type NavState = {
   heading: number;
   follow: boolean;
   wakeLock: { release: () => Promise<void> } | null;
+  /** Average speed of the current route (m/s), for the ETA sent to customers. */
+  speed: number;
+  lastReport: number;
 };
 
 /**
@@ -78,6 +101,7 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
   const abortRef = useRef<AbortController | null>(null);
   const nav = useRef<NavState>({
     watchId: null, plan: null, offRouteFixes: 0, lastReroute: 0, last: null, heading: 0, follow: true, wakeLock: null,
+    speed: 0, lastReport: 0,
   });
 
   const [query, setQuery] = useState(initialCode ?? '');
@@ -90,6 +114,15 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
   const [ride, setRide] = useState<Ride>({ kind: 'idle' });
   const [following, setFollowing] = useState(true);
   const [gpsWarning, setGpsWarning] = useState<string | null>(null);
+  // Multi-stop planning (before a run exists) and the active run.
+  const [extras, setExtras] = useState<PlannedStop[]>([]);
+  const [optimize, setOptimize] = useState(false);
+  const [run, setRunState] = useState<RunState | null>(null);
+  const runRef = useRef<RunState | null>(null);
+  const setRun = (next: RunState | null) => {
+    runRef.current = next;
+    setRunState(next);
+  };
 
   const busy = ride.kind === 'simulating' || ride.kind === 'locating' || ride.kind === 'navigating';
 
@@ -142,9 +175,24 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load the code passed in the URL (?code=…) once.
+  // Resume a run from the URL (?run=…#token=…), else load the code passed in (?code=…).
   useEffect(() => {
-    if (initialCode) void planFor(initialCode);
+    const fromUrl = runFromUrl();
+    if (fromUrl) {
+      void (async () => {
+        try {
+          const loaded = await loadRun(fromUrl.id, fromUrl.token);
+          setRun(loaded);
+          const stop = loaded.stops[loaded.current];
+          if (stop) await planFor(stop.code, stop.claim);
+          else setRide({ kind: 'run-done' });
+        } catch (err) {
+          setStatus({ kind: 'error', message: err instanceof RunApiError ? err.message : 'Could not open this run.' });
+        }
+      })();
+    } else if (initialCode) {
+      void planFor(initialCode);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -155,7 +203,7 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
   }
 
   /** Resolve a code, pick a simulated rider start near it, then route. */
-  async function planFor(input: string) {
+  async function planFor(input: string, claim?: string | null) {
     const normalized = normalizePostcode(input);
     if (!normalized) {
       setStatus({ kind: 'error', message: 'Enter an 11-character NIPOST code, e.g. FC 02 SIM BP 87.' });
@@ -175,22 +223,22 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
       setQuery(place.formatted);
       setOrigin(start);
       setOriginSource('simulated');
-      await fetchRoute(normalized, start, profile);
+      await fetchRoute(normalized, start, profile, true, claim);
     } catch (err) {
       setStatus({ kind: 'error', message: err instanceof Error ? err.message : 'Lookup failed.' });
     }
   }
 
   /** Fetches and draws a route; returns it, or null on failure. `fit` frames the whole route. */
-  async function fetchRoute(forCode: string, from: LngLat, withProfile: RouteProfile, fit = true) {
+  async function fetchRoute(forCode: string, from: LngLat, withProfile: RouteProfile, fit = true, claim?: string | null) {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     setStatus({ kind: 'loading' });
 
     try {
-      const claimParam =
-        claimId && initialCode && normalizePostcode(initialCode) === forCode ? `&claim=${encodeURIComponent(claimId)}` : '';
+      const claimFor = claim !== undefined ? claim : claimId && initialCode && normalizePostcode(initialCode) === forCode ? claimId : null;
+      const claimParam = claimFor ? `&claim=${encodeURIComponent(claimFor)}` : '';
       const url = `/api/v1/navigate/${forCode}/route?from=${from[0].toFixed(6)},${from[1].toFixed(6)}&profile=${withProfile}${claimParam}`;
       const res = await fetch(url, { signal: controller.signal });
       const body = await res.json().catch(() => null);
@@ -340,12 +388,13 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
       nav.current.wakeLock = null;
     }
 
-    const forCode = code;
+    // Fixed for this leg: the stops to create the run with (first leg only) and the travel mode.
     const forProfile = profile;
+    const planned = { first: code, extras, optimize };
     nav.current.watchId = navigator.geolocation.watchPosition(
       (pos) => {
         setGpsWarning(null);
-        void onFix(pos, forCode, forProfile);
+        void onFix(pos, forProfile, planned);
       },
       (err) => {
         // Only a denied permission is fatal. Timeouts (e.g. standing still at a
@@ -362,26 +411,56 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
     );
   }
 
-  async function onFix(pos: GeolocationPosition, forCode: string, forProfile: RouteProfile) {
+  async function onFix(
+    pos: GeolocationPosition,
+    forProfile: RouteProfile,
+    planned: { first: string; extras: PlannedStop[]; optimize: boolean },
+  ) {
     const map = await mapReady.current;
     const state = nav.current;
     if (!map || state.watchId === null) return;
     const point: LngLat = [pos.coords.longitude, pos.coords.latitude];
     const accuracy = pos.coords.accuracy ?? 0;
 
-    // First fix: route from where the rider actually is.
+    // First fix of a leg: create the run if needed, then route from where the rider actually is.
     if (!state.plan) {
       if (state.lastReroute > 0) return; // first route still loading
       state.lastReroute = Date.now();
       setOrigin(point);
       setOriginSource('gps');
-      const first = await fetchRoute(forCode, point, forProfile, false);
+      let active = runRef.current;
+      if (!active) {
+        try {
+          active = await createRun({
+            profile: forProfile,
+            optimize: planned.optimize,
+            from: point,
+            stops: [
+              { code: planned.first, claim: claimId && initialCode && normalizePostcode(initialCode) === planned.first ? claimId : null },
+              ...planned.extras.map((x) => ({ code: x.code })),
+            ],
+          });
+        } catch (err) {
+          endNavigation();
+          setRide({ kind: 'idle' });
+          setStatus({ kind: 'error', message: err instanceof RunApiError ? err.message : 'Could not start the delivery.' });
+          return;
+        }
+        if (nav.current.watchId === null) return;
+        setRun(active);
+        setExtras([]);
+        // A reload resumes this run; the token stays in the #fragment.
+        window.history.replaceState(null, '', runUrl(active));
+      }
+      const stop = active.stops[active.current];
+      const first = await fetchRoute(stop.code, point, forProfile, false, stop.claim);
       if (!first) {
         state.lastReroute = 0; // let the next fix try again
         return;
       }
       if (nav.current.watchId === null) return;
       state.plan = buildNavPlan(first);
+      state.speed = first.route.duration_s > 0 ? first.route.distance_m / first.route.duration_s : 0;
       const far = distanceMetres(point, first.destination.point);
       if (far > FAR_AWAY_M) {
         setStatus({ kind: 'error', message: `You're ${Math.round(far / 1000)} km away; the route is long, but navigation will work.` });
@@ -403,12 +482,29 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
 
     const progress = navProgress(state.plan!, point, accuracy);
 
+    const active = runRef.current;
+    const report = (arrived: boolean) => {
+      if (!active) return;
+      state.lastReport = Date.now();
+      void reportPosition(active, {
+        lng: point[0],
+        lat: point[1],
+        heading: state.heading,
+        current_stop: active.current,
+        remaining_m: Math.round(progress.remaining_m),
+        eta_s: state.speed > 0 ? Math.round(progress.remaining_m / state.speed) : 0,
+        arrived,
+      }).catch(() => {});
+    };
+
     if (progress.arrived) {
+      report(true);
       endNavigation();
-      setRide({ kind: 'delivered' });
+      setRide({ kind: 'pod', saving: false, error: null });
       map.flyTo({ ...buildingCamera(state.plan!.destination, mapModeOf(map)), speed: 0.8, essential: true });
       return;
     }
+    if (Date.now() - state.lastReport > REPORT_EVERY_MS) report(false);
 
     // Re-route after a few consecutive off-route fixes, not on one GPS blip.
     state.offRouteFixes = progress.offRoute ? state.offRouteFixes + 1 : 0;
@@ -417,9 +513,12 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
       state.offRouteFixes = 0;
       state.lastReroute = Date.now();
       rerouting = true;
-      void fetchRoute(forCode, point, forProfile, false).then((fresh) => {
-        if (fresh && nav.current.watchId !== null) nav.current.plan = buildNavPlan(fresh);
-      });
+      const stop = active?.stops[active.current];
+      if (stop) {
+        void fetchRoute(stop.code, point, forProfile, false, stop.claim).then((fresh) => {
+          if (fresh && nav.current.watchId !== null) nav.current.plan = buildNavPlan(fresh);
+        });
+      }
     }
 
     setRide({
@@ -429,6 +528,42 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
       accuracy_m: Math.round(accuracy),
       rerouting,
     });
+  }
+
+  /** Proof of delivery for the current stop, then on to the next one. */
+  async function submitPod(input: PodInput) {
+    const active = runRef.current;
+    if (!active) return;
+    setRide({ kind: 'pod', saving: true, error: null });
+    try {
+      const result = await completeStop(active, active.current, input);
+      const stops = active.stops.map((st) => (st.stop_index === active.current ? { ...st, status: 'delivered' as const } : st));
+      if (result.next_stop == null) {
+        setRun({ ...active, stops, current: stops.length });
+        setRide({ kind: 'run-done' });
+        return;
+      }
+      setRun({ ...active, stops, current: result.next_stop });
+      const next = stops[result.next_stop];
+      setQuery(next.formatted);
+      setCode(next.code);
+      await startDelivery();
+    } catch (err) {
+      setRide({ kind: 'pod', saving: false, error: err instanceof RunApiError ? err.message : 'Could not save. Check your connection and try again.' });
+    }
+  }
+
+  /** Stops the run for everyone: unfinished stops are marked not delivered. */
+  async function finishRun() {
+    const active = runRef.current;
+    if (active && !confirm('End this delivery run? Stops not yet delivered will be marked as not delivered.')) return;
+    stopEverything();
+    if (active) {
+      await endRun(active).catch(() => {});
+      setRun(null);
+      window.history.replaceState(null, '', '/rider');
+    }
+    await resetView();
   }
 
   async function recenter() {
@@ -608,22 +743,45 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
                     onClick={resetView}
                     className="flex-1 rounded-lg border border-white/15 px-4 py-2 text-slate-200 hover:bg-white/5"
                   >
-                    End delivery
+                    Pause
+                  </button>
+                  <button
+                    type="button"
+                    onClick={finishRun}
+                    className="rounded-lg border border-red-400/30 px-3 py-2 text-red-300 hover:bg-red-400/10"
+                  >
+                    End run
                   </button>
                 </div>
+                {run && <CustomerLinks run={run} />}
               </>
-            ) : ride.kind === 'delivered' ? (
+            ) : ride.kind === 'pod' && run?.stops[run.current] ? (
+              <>
+                <PodForm
+                  key={run.current}
+                  stop={run.stops[run.current]}
+                  onSubmit={submitPod}
+                  saving={ride.saving}
+                  error={ride.error}
+                />
+                <CustomerLinks run={run} />
+              </>
+            ) : ride.kind === 'run-done' ? (
               <div className="mt-3 rounded-lg bg-emerald-500/10 p-3 ring-1 ring-emerald-400/30">
-                <p className="font-medium text-emerald-300">You've arrived ✓</p>
-                <p className="mt-1 text-xs text-slate-400">
-                  You're at the {route.destination.kind === 'gate' ? 'gate' : 'building'}. Hand over the delivery.
+                <p className="font-medium text-emerald-300">All deliveries done ✓</p>
+                <p className="mt-1 text-xs text-slate-300">
+                  {run ? `${run.stops.filter((st) => st.status === 'delivered').length} of ${run.stops.length} stops delivered.` : ''}
                 </p>
                 <button
                   type="button"
-                  onClick={resetView}
+                  onClick={() => {
+                    setRun(null);
+                    window.history.replaceState(null, '', '/rider');
+                    void resetView();
+                  }}
                   className="mt-2 w-full rounded-lg bg-[#39FF14] px-3 py-2 font-semibold text-slate-950 hover:brightness-110"
                 >
-                  Done
+                  Plan a new delivery
                 </button>
               </div>
             ) : (
@@ -645,6 +803,20 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
                     </button>
                   ))}
                 </div>
+
+                {run ? (
+                  <CustomerLinks run={run} />
+                ) : (
+                  <StopsPlanner
+                    first={code ? { code, formatted: route.formatted, name: placeName && placeName !== route.formatted ? placeName : null } : null}
+                    extras={extras}
+                    onAdd={(stop) => setExtras((xs) => [...xs, stop])}
+                    onRemove={(c) => setExtras((xs) => xs.filter((x) => x.code !== c))}
+                    optimize={optimize}
+                    onOptimize={setOptimize}
+                    disabled={busy}
+                  />
+                )}
 
                 <div className="mt-3 flex items-center justify-between gap-2 text-xs text-slate-400">
                   <span>
@@ -687,7 +859,11 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
                       disabled={status.kind === 'loading'}
                       className="w-full rounded-lg bg-[#39FF14] px-3 py-2.5 text-base font-semibold text-slate-950 hover:brightness-110 disabled:opacity-60"
                     >
-                      Start delivery
+                      {run
+                        ? `Continue delivery · stop ${run.current + 1} of ${run.stops.length}`
+                        : extras.length
+                          ? `Start delivery · ${extras.length + 1} stops`
+                          : 'Start delivery'}
                     </button>
                     <div className="flex gap-2">
                       <button

@@ -30,7 +30,7 @@ test('Start delivery follows GPS turn by turn, re-routes, and detects arrival', 
     await page.waitForTimeout(1200);
   }
   await expect(page.getByText(/ left$/)).toBeVisible(); // "x km left"
-  await expect(page.getByText('End delivery')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'End run' })).toBeVisible();
 
   // Wander well off the route: the app re-routes (after 3 off-route fixes, at
   // most every 15 s, so keep moving until it does).
@@ -49,7 +49,8 @@ test('Start delivery follows GPS turn by turn, re-routes, and detects arrival', 
   // Arrive at the building.
   const [dlng, dlat] = route.destination.point;
   await context.setGeolocation({ longitude: dlng, latitude: dlat, accuracy: 8 });
-  await expect(page.getByText("You've arrived ✓")).toBeVisible();
+  // Arrival opens proof of delivery for the stop.
+  await expect(page.getByText('You’ve arrived at stop 1')).toBeVisible();
 });
 
 test('Simulate ride animates without GPS', async ({ page, request }) => {

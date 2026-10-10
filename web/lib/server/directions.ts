@@ -24,7 +24,14 @@ export type Route = {
   snappedDestination: { point: LngLat; offset_m: number };
 };
 
-export type DirectionsClient = { route: (from: LngLat, to: LngLat, profile?: Profile) => Promise<Route> };
+export type DirectionsClient = {
+  route: (from: LngLat, to: LngLat, profile?: Profile) => Promise<Route>;
+  /** Best visiting order for stops, starting from `from`: indexes into `stops`. */
+  optimizeOrder: (from: LngLat, stops: LngLat[], profile?: Profile) => Promise<number[]>;
+};
+
+/** Mapbox's Optimization API takes at most 12 coordinates: the start plus 11 stops. */
+export const MAX_OPTIMIZED_STOPS = 11;
 
 export function createDirectionsClient({
   accessToken,
@@ -82,5 +89,35 @@ export function createDirectionsClient({
     };
   }
 
-  return { route };
+  async function optimizeOrder(from: LngLat, stops: LngLat[], profile: Profile = 'driving'): Promise<number[]> {
+    if (stops.length < 2) return stops.map((_, i) => i);
+    if (stops.length > MAX_OPTIMIZED_STOPS) {
+      throw new DirectionsError('too_many_stops', `Route optimisation supports up to ${MAX_OPTIMIZED_STOPS} stops.`, 400);
+    }
+    const coords = [from, ...stops].map(([lng, lat]) => `${lng},${lat}`).join(';');
+    const url = new URL(`/optimized-trips/v1/mapbox/${profile}/${coords}`, baseUrl);
+    // A round trip from the rider's position gives the best order; the return leg is ignored.
+    url.searchParams.set('source', 'first');
+    url.searchParams.set('roundtrip', 'true');
+    url.searchParams.set('access_token', accessToken);
+
+    let res: Response;
+    try {
+      res = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs) });
+    } catch (err) {
+      throw new DirectionsError('network_error', `Routing service unreachable: ${(err as Error).message}`);
+    }
+    const body = await res.json().catch(() => null);
+    if (!res.ok || body?.code !== 'Ok' || !Array.isArray(body.waypoints)) {
+      throw new DirectionsError('optimization_failed', body?.message ?? `Route optimisation returned HTTP ${res.status}`);
+    }
+    // waypoints[i].waypoint_index is input i's position in the trip; input 0 is the rider.
+    return body.waypoints
+      .slice(1)
+      .map((w: { waypoint_index: number }, i: number) => ({ stop: i, at: w.waypoint_index }))
+      .sort((a: { at: number }, b: { at: number }) => a.at - b.at)
+      .map((x: { stop: number }) => x.stop);
+  }
+
+  return { route, optimizeOrder };
 }

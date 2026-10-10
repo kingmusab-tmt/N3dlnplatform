@@ -18,6 +18,7 @@ Owner: **you** = needs your accounts or a decision · **dev** = code work.
 - [ ] **Custom email sender** (e.g. Resend) in Supabase → Authentication → SMTP. The built-in sender only allows a few emails an hour. *(you)*
 - [x] **Mark or change a gate from My places**: opens the map in gate mode, with Save gate. *(done)*
 - [x] **Lite map mode** for budget phones and limited data: automatic on data saver, 2G or ≤2 GB RAM, with a manual 3D/Lite switch. Uses about 60% less map data. *(done)*
+- [x] **Dispatch features:** live customer tracking links, proof of delivery (code and/or photo), multi-stop runs with optimised order, and run links for partners' riders. *(done)*
 - [ ] **More coverage:** import the next pilot area (e.g. Ikeja) with `npm run import:osm -- --bbox … --state LA --lga …`. *(dev; you pick the area)*
 - [ ] **Partner self-service:** request an API key, see usage, and count requests per key for billing. *(dev)*
 

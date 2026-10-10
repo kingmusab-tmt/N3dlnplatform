@@ -39,6 +39,12 @@ tags:
     description: Rider routes to a building.
   - name: Claims
     description: Owner-submitted home profiles and shareable links.
+  - name: Dispatch
+    description: |
+      Delivery runs for riders: ordered stops (optionally reordered for the shortest route),
+      a public tracking link per stop for the customer, live rider position, and proof of
+      delivery by code and/or photo. Creating a run uses your API key; the rider's phone then
+      authenticates its own updates with the run's `rider_token`.
   - name: Account
     description: |
       A signed-in website user's own places. These use the website's Supabase Auth session
@@ -272,6 +278,202 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /api/v1/runs:
+    post:
+      tags: [Dispatch]
+      operationId: createRun
+      summary: Start a delivery run
+      description: |
+        Creates a run with up to 25 stops, each with its own customer tracking link
+        (`tracking_url`). Set `optimize: true` with the rider's position in `from` to reorder up to
+        11 stops for the shortest route. A stop can carry a 4-digit `pod_code` (yours, or
+        `require_code: true` to generate one): tell it to the customer; the rider must enter it to
+        complete the stop. Codes appear only in this response, never on tracking pages.
+        Keep `run.rider_token` on the rider's phone: it authorises position updates and completions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RunCreate' }
+      responses:
+        '201':
+          description: The run, its rider token, and the stops in visiting order.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Run' }
+        '400':
+          description: '`INVALID_RUN`, `INVALID_POSTCODE`, `INVALID_PROFILE`, `INVALID_ORIGIN` or `TOO_MANY_STOPS`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/PostcodeNotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/runs/{id}:
+    get:
+      tags: [Dispatch]
+      operationId: getRun
+      summary: Get a run (rider)
+      description: The run's stops in order with their status. Never includes delivery codes.
+      security:
+        - RiderToken: []
+      parameters:
+        - { name: id, in: path, required: true, description: Run id., schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The run and its stops.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Run' }
+        '401': { $ref: '#/components/responses/InvalidRiderToken' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/runs/{id}/position:
+    post:
+      tags: [Dispatch]
+      operationId: updateRunPosition
+      summary: Report the rider's position
+      description: |
+        Send every ~10 seconds while riding. `current_stop` with `remaining_m`/`eta_s` updates that
+        stop's customer page; `arrived: true` marks the rider as at the stop.
+      security:
+        - RiderToken: []
+      parameters:
+        - { name: id, in: path, required: true, description: Run id., schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RiderPosition' }
+      responses:
+        '204': { description: Recorded. }
+        '400':
+          description: '`INVALID_POSITION`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/InvalidRiderToken' }
+        '409':
+          description: '`RUN_ENDED`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/runs/{id}/stops/{index}/complete:
+    post:
+      tags: [Dispatch]
+      operationId: completeStop
+      summary: Proof of delivery for a stop
+      description: |
+        If the stop has a delivery code, `pod_code` must match (5 wrong tries per 15 minutes).
+        Otherwise a `photo` is required. A photo can be sent in either case.
+      security:
+        - RiderToken: []
+      parameters:
+        - { name: id, in: path, required: true, description: Run id., schema: { type: string, format: uuid } }
+        - { name: index, in: path, required: true, description: Stop index (0-based)., schema: { type: integer, minimum: 0, example: 0 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProofOfDelivery' }
+      responses:
+        '200':
+          description: Delivered.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stop_index: { type: integer }
+                  status: { type: string, enum: [delivered] }
+                  delivered_at: { type: string, format: date-time }
+                  pod_method: { type: string, enum: [code, photo, code+photo] }
+                  next_stop: { type: integer, nullable: true, description: 'Next unfinished stop; null when the run is done.' }
+        '400':
+          description: '`WRONG_CODE`, `POD_REQUIRED`, `INVALID_PHOTO` or `INVALID_STOP`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/InvalidRiderToken' }
+        '404':
+          description: '`STOP_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: '`ALREADY_DELIVERED`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '413':
+          description: '`PHOTO_TOO_LARGE` (over 1.5 MB).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/runs/{id}/end:
+    post:
+      tags: [Dispatch]
+      operationId: endRun
+      summary: End a run early
+      description: Unfinished stops are marked failed and their tracking pages say so.
+      security:
+        - RiderToken: []
+      parameters:
+        - { name: id, in: path, required: true, description: Run id., schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Ended. }
+        '401': { $ref: '#/components/responses/InvalidRiderToken' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/track/{token}:
+    get:
+      tags: [Dispatch]
+      operationId: trackDelivery
+      summary: Track a delivery
+      description: |
+        Public status for the customer's tracking page (`/t/{token}`). The rider's live position
+        and ETA are included only once this is the rider's current stop.
+      security: []
+      parameters:
+        - { name: token, in: path, required: true, description: "Tracking token from the stop's tracking_url.", schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Delivery status, destination building and (when current) the rider.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tracking' }
+        '404':
+          description: '`DELIVERY_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/track/{token}/photo:
+    get:
+      tags: [Dispatch]
+      operationId: trackDeliveryPhoto
+      summary: Proof-of-delivery photo
+      security: []
+      parameters:
+        - { name: token, in: path, required: true, description: "Tracking token from the stop's tracking_url.", schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The photo.
+          content:
+            image/jpeg:
+              schema: { type: string, format: binary }
+        '404':
+          description: '`PHOTO_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /api/v1/me/claims:
     get:
       tags: [Account]
@@ -421,6 +623,11 @@ components:
       schema: { type: string, example: FC-02-SIM-BP-87 }
 
   securitySchemes:
+    RiderToken:
+      type: apiKey
+      in: header
+      name: X-Rider-Token
+      description: The `rider_token` returned when the run was created.
     SessionCookie:
       type: apiKey
       in: cookie
@@ -443,6 +650,11 @@ components:
       headers:
         Retry-After:
           schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InvalidRiderToken:
+      description: '`INVALID_RIDER_TOKEN`'
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -656,6 +868,122 @@ components:
         label: { type: string, minLength: 1, maxLength: 80, example: Flat 3B }
         delivery_notes: { type: string, maxLength: 500, example: 'Blue gate on the left, ring twice' }
         gate: { $ref: '#/components/schemas/Gate' }
+
+    RunCreate:
+      type: object
+      required: [stops]
+      properties:
+        profile: { type: string, enum: [driving, cycling, walking], default: driving }
+        optimize: { type: boolean, default: false, description: 'Reorder stops for the shortest route (needs from).' }
+        from:
+          allOf: [{ $ref: '#/components/schemas/LngLat' }]
+          description: The rider's current position.
+        stops:
+          type: array
+          minItems: 1
+          maxItems: 25
+          example: [{ code: FC-02-SIM-BP-87, recipient_name: Ade, require_code: true }]
+          items:
+            type: object
+            required: [code]
+            properties:
+              code: { type: string, example: FC-02-SIM-BP-87 }
+              claim: { type: string, format: uuid, description: 'Share id of a claim on this building: route to its gate.' }
+              recipient_name: { type: string, maxLength: 80 }
+              pod_code: { type: string, pattern: '^[0-9]{4}$', description: Your 4-digit delivery code. }
+              require_code: { type: boolean, description: Generate a 4-digit delivery code. }
+
+    Run:
+      type: object
+      properties:
+        run:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            rider_token: { type: string, description: 'Secret for the rider''s phone; shown once.' }
+            rider_url: { type: string, format: uri, description: 'Opens the run in the Rider View on the rider''s phone (token in the #fragment).' }
+            profile: { type: string }
+            status: { type: string, enum: [active, ended] }
+            optimized: { type: boolean }
+        stops:
+          type: array
+          items:
+            type: object
+            properties:
+              stop_index: { type: integer }
+              delivery_id: { type: string, format: uuid }
+              code: { type: string }
+              formatted: { type: string }
+              building_name: { type: string, nullable: true }
+              recipient_name: { type: string, nullable: true }
+              destination:
+                type: object
+                properties:
+                  point: { $ref: '#/components/schemas/LngLat' }
+                  kind: { type: string, enum: [gate, center] }
+                  source: { type: string, enum: [claim, map, building] }
+              tracking_token: { type: string, format: uuid }
+              tracking_url: { type: string, format: uri, description: Send this to the customer. }
+              requires_code: { type: boolean }
+              status: { type: string, enum: [pending, en_route, arrived, delivered, failed] }
+              pod_code: { type: string, description: 'Only when the stop has a delivery code.' }
+
+    RiderPosition:
+      type: object
+      required: [lng, lat]
+      properties:
+        lng: { type: number, example: 7.4800 }
+        lat: { type: number, example: 9.0700 }
+        heading: { type: number, description: Compass degrees. }
+        current_stop: { type: integer, example: 0 }
+        remaining_m: { type: number }
+        eta_s: { type: number }
+        arrived: { type: boolean }
+
+    ProofOfDelivery:
+      type: object
+      properties:
+        pod_code: { type: string, pattern: '^[0-9]{4}$', description: "The customer's delivery code, if the stop has one." }
+        received_by: { type: string, maxLength: 80 }
+        photo:
+          type: string
+          description: 'data:image/jpeg|png|webp;base64,… (max 1.5 MB).'
+          example: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+
+    Tracking:
+      allOf:
+        - $ref: '#/components/schemas/BuildingResult'
+        - type: object
+          properties:
+            destination:
+              type: object
+              properties:
+                point: { $ref: '#/components/schemas/LngLat' }
+                kind: { type: string, enum: [gate, center] }
+                source: { type: string, enum: [claim, map, building] }
+            delivery:
+              type: object
+              properties:
+                status: { type: string, enum: [pending, en_route, arrived, delivered, failed] }
+                stop_index: { type: integer }
+                stops_total: { type: integer }
+                stops_before: { type: integer, description: Unfinished stops before this one. }
+                recipient_name: { type: string, nullable: true }
+                eta_s: { type: integer, nullable: true }
+                remaining_m: { type: integer, nullable: true }
+                delivered_at: { type: string, format: date-time, nullable: true }
+                received_by: { type: string, nullable: true }
+                pod_method: { type: string, nullable: true }
+                has_photo: { type: boolean }
+            rider:
+              type: object
+              nullable: true
+              description: Only once this is the rider's current stop.
+              properties:
+                position: { $ref: '#/components/schemas/LngLat' }
+                heading: { type: number, nullable: true }
+                updated_at: { type: string, format: date-time }
+                profile: { type: string }
 
     ClaimUpdate:
       type: object

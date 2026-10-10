@@ -124,6 +124,9 @@ describe('GET /api/v1/navigate/:code', () => {
 describe('GET /api/v1/navigate/:code/route', () => {
   const directionsCalls: unknown[] = [];
   const directions = {
+    async optimizeOrder(_from: [number, number], stops: [number, number][]) {
+      return stops.map((_, i) => i);
+    },
     async route(from: [number, number], to: [number, number], profile = 'driving') {
       directionsCalls.push({ from, to, profile });
       if (from[0] === 0) throw new DirectionsError('no_route', 'No road route found between these points.', 422);
