@@ -1,11 +1,39 @@
 import type { Feature, Point, Polygon } from 'geojson';
 
-// Mirrors server/src/lib/postcode.js so the UI can validate before hitting the API.
+// NIPOST digital postcode (https://docs.postcode.gov.ng/concepts/postcode-format):
+//   State (2 alpha) | LGA (2 digits, 01-99) | District (3 alphanumeric)
+//   | Area (2 alpha) | Building unit (2 digits, 01-99)
+// e.g. "EK 01 A03 FK 01" == "EK-01-A03-FK-01" == "ek01a03fk01" -> canonical "EK01A03FK01".
+// Shared by the browser (pre-validation) and the API.
 const CANONICAL_PATTERN = /^([A-Z]{2})(0[1-9]|[1-9]\d)([A-Z0-9]{3})([A-Z]{2})(0[1-9]|[1-9]\d)$/;
 
-export function normalizePostcode(input: string): string | null {
+/** Strips separators and uppercases; returns the canonical 11-char code, or null if invalid. */
+export function normalizePostcode(input: unknown): string | null {
+  if (typeof input !== 'string') return null;
   const cleaned = input.toUpperCase().replace(/[^A-Z0-9]/g, '');
   return CANONICAL_PATTERN.test(cleaned) ? cleaned : null;
+}
+
+/** "FC02A09DB09" -> "FC 02 A09 DB 09" for display. */
+export function formatPostcode(code: string) {
+  const m = CANONICAL_PATTERN.exec(code);
+  return m ? m.slice(1).join(' ') : code;
+}
+
+/** "FC02A09DB09" -> "FC-02-A09-DB-09", the form NIPOST's API documents. */
+export function hyphenatePostcode(code: string) {
+  const m = CANONICAL_PATTERN.exec(code);
+  return m ? m.slice(1).join('-') : code;
+}
+
+export type Segments = { state: string; lga: string; district: string; area: string; building: string };
+
+/** "FC02A09DB09" -> { state: "FC", lga: "02", district: "A09", area: "DB", building: "09" } */
+export function parsePostcode(code: string): Segments | null {
+  const m = CANONICAL_PATTERN.exec(code);
+  if (!m) return null;
+  const [, state, lga, district, area, building] = m;
+  return { state, lga, district, area, building };
 }
 
 export type Verification = {

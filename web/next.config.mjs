@@ -1,7 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // /api/v1/* is proxied to the Express API by app/api/v1/[...path]/route.ts,
-  // which attaches the server-only API key.
+  // The spec is read from disk at runtime; make sure it ships with the function.
+  outputFileTracingIncludes: {
+    '/api/v1/openapi.yaml': ['./openapi.yaml'],
+  },
 };
 
 export default nextConfig;
