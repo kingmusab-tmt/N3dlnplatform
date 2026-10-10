@@ -19,6 +19,7 @@ Owner: **you** = needs your accounts or a decision · **dev** = code work.
 - [x] **Mark or change a gate from My places**: opens the map in gate mode, with Save gate. *(done)*
 - [x] **Lite map mode** for budget phones and limited data: automatic on data saver, 2G or ≤2 GB RAM, with a manual 3D/Lite switch. Uses about 60% less map data. *(done)*
 - [x] **Dispatch features:** live customer tracking links, proof of delivery (code and/or photo), multi-stop runs with optimised order, and run links for partners' riders. *(done)*
+- [x] **Offline-friendly Rider View:** installable app (PWA); the Rider View, its run and visited building tiles work without signal; navigation falls back to straight-line guidance; delivery proofs and position updates are saved on the phone and sent when back online. *(done; check on a real phone in the field test)*
 - [ ] **More coverage:** import the next pilot area (e.g. Ikeja) with `npm run import:osm -- --bbox … --state LA --lga …`. *(dev; you pick the area)*
 - [ ] **Partner self-service:** request an API key, see usage, and count requests per key for billing. *(dev)*
 
@@ -29,7 +30,7 @@ Owner: **you** = needs your accounts or a decision · **dev** = code work.
 - [ ] **Unlock GitHub Actions:** GitHub refuses to start CI jobs because "your account is locked due to a billing issue". Fix it in GitHub → Settings → Billing and plans. *(you)*
 - [ ] **Add the `MAPBOX_TOKEN` GitHub secret,** so CI renders maps and runs the routing tests. *(you)*
 - [ ] **Error tracking and uptime alerts** (e.g. Sentry and an uptime monitor). *(dev, plus an account from you)*
-- [ ] **Add a favicon.** The browser currently gets a 404 for `/favicon.ico`. *(dev)*
+- [x] **Favicon and app icons.** *(done)*
 - [ ] **Field test in Wuse 2:** walk or ride real deliveries and check GPS against the 3D map. Phase 3 of the MVP plan. *(you)*
 
 ## Security

@@ -40,12 +40,17 @@ const securityHeaders = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   poweredByHeader: false,
+  // Lets a production build be checked locally next to a running dev server.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   // The spec is read from disk at runtime; make sure it ships with the function.
   outputFileTracingIncludes: {
     '/api/v1/openapi.yaml': ['./openapi.yaml'],
   },
   async headers() {
-    return [{ source: '/:path*', headers: securityHeaders }];
+    return [
+      { source: '/:path*', headers: securityHeaders },
+      { source: '/sw.js', headers: [{ key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' }] },
+    ];
   },
 };
 

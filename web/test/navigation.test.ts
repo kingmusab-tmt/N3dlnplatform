@@ -79,3 +79,14 @@ describe('navigation progress', () => {
     expect(navProgress(plan, C).arrived).toBe(false); // road end, 35 m short of the gate
   });
 });
+
+describe('straightLinePlan', () => {
+  it('measures straight to the destination and still detects arrival', async () => {
+    const { straightLinePlan } = await import('@/lib/navigation');
+    const plan = straightLinePlan(A, GATE);
+    const start = navProgress(plan, A);
+    expect(start.remaining_m).toBeGreaterThan(1000);
+    expect(start.next?.instruction).toMatch(/Offline/);
+    expect(navProgress(plan, GATE).arrived).toBe(true);
+  });
+});

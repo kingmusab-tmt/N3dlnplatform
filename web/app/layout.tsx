@@ -1,4 +1,5 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
+import ServiceWorker from '@/components/ServiceWorker';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import './globals.css';
 
@@ -9,10 +10,15 @@ export const metadata: Metadata = {
   description: 'Resolve a Nigerian digital postcode to its exact 3D building footprint.',
 };
 
+export const viewport: Viewport = { themeColor: '#0b0f14' };
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="antialiased text-slate-100">{children}</body>
+      <body className="antialiased text-slate-100">
+        {children}
+        <ServiceWorker />
+      </body>
     </html>
   );
 }

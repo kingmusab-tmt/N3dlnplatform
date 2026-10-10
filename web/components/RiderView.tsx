@@ -17,7 +17,9 @@ import {
 } from '@/lib/map';
 import MapModeToggle from '@/components/MapModeToggle';
 import { resolveMapMode } from '@/lib/mapMode';
-import { buildNavPlan, navProgress, type NavPlan } from '@/lib/navigation';
+import { buildNavPlan, navProgress, straightLinePlan, type NavPlan } from '@/lib/navigation';
+import { flushProofs, pendingProofs, queueProof } from '@/lib/rider/outbox';
+import { useOnline } from '@/lib/useOnline';
 import { normalizePostcode, type NavigateResponse, type RouteProfile, type RouteResponse } from '@/lib/postcode';
 import { createVehicleMarker, type VehicleMarker } from '@/lib/vehicles';
 import CustomerLinks from '@/components/rider/CustomerLinks';
@@ -86,7 +88,12 @@ type NavState = {
   /** Average speed of the current route (m/s), for the ETA sent to customers. */
   speed: number;
   lastReport: number;
+  /** Following a straight line because there was no connection to fetch a route. */
+  offlinePlan: boolean;
 };
+
+// Without a route, assume ~20 km/h for ETAs.
+const OFFLINE_SPEED_MS = 5.5;
 
 /**
  * @param claimId From a shared link: routes to the gate its owner marked, but
@@ -101,8 +108,10 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
   const abortRef = useRef<AbortController | null>(null);
   const nav = useRef<NavState>({
     watchId: null, plan: null, offRouteFixes: 0, lastReroute: 0, last: null, heading: 0, follow: true, wakeLock: null,
-    speed: 0, lastReport: 0,
+    speed: 0, lastReport: 0, offlinePlan: false,
   });
+  // The latest position report that failed to send (no connection); sent when back online.
+  const pendingReport = useRef<{ run: RunState; body: Parameters<typeof reportPosition>[1] } | null>(null);
 
   const [query, setQuery] = useState(initialCode ?? '');
   const [code, setCode] = useState<string | null>(null);
@@ -117,6 +126,9 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
   // Multi-stop planning (before a run exists) and the active run.
   const [extras, setExtras] = useState<PlannedStop[]>([]);
   const [optimize, setOptimize] = useState(false);
+  const online = useOnline();
+  const [queued, setQueued] = useState(0);
+  const [notice, setNotice] = useState<string | null>(null);
   const [run, setRunState] = useState<RunState | null>(null);
   const runRef = useRef<RunState | null>(null);
   const setRun = (next: RunState | null) => {
@@ -195,6 +207,25 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Back online (or on load): upload proofs saved offline and the last position.
+  useEffect(() => {
+    if (!online) return;
+    const report = pendingReport.current;
+    if (report) {
+      pendingReport.current = null;
+      void reportPosition(report.run, report.body).catch(() => {});
+    }
+    if (pendingProofs().length === 0) return;
+    void flushProofs().then(({ sent, rejected }) => {
+      setQueued(pendingProofs(runRef.current?.id).length);
+      if (rejected.length) {
+        setNotice(`${rejected.length} saved delivery proof(s) were rejected: ${rejected[0].message}`);
+      } else if (sent) {
+        setNotice(`Back online: sent ${sent} saved delivery proof${sent === 1 ? '' : 's'}.`);
+      }
+    });
+  }, [online]);
 
   // ---- Planning -------------------------------------------------------------
   async function handleSubmit(e: FormEvent) {
@@ -443,7 +474,15 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
         } catch (err) {
           endNavigation();
           setRide({ kind: 'idle' });
-          setStatus({ kind: 'error', message: err instanceof RunApiError ? err.message : 'Could not start the delivery.' });
+          setStatus({
+            kind: 'error',
+            message:
+              err instanceof RunApiError
+                ? err.message
+                : navigator.onLine
+                  ? 'Could not start the delivery.'
+                  : 'You’re offline. Connect to the internet to start a delivery run.',
+          });
           return;
         }
         if (nav.current.watchId === null) return;
@@ -454,14 +493,23 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
       }
       const stop = active.stops[active.current];
       const first = await fetchRoute(stop.code, point, forProfile, false, stop.claim);
-      if (!first) {
-        state.lastReroute = 0; // let the next fix try again
-        return;
-      }
       if (nav.current.watchId === null) return;
-      state.plan = buildNavPlan(first);
-      state.speed = first.route.duration_s > 0 ? first.route.distance_m / first.route.duration_s : 0;
-      const far = distanceMetres(point, first.destination.point);
+      if (!first) {
+        if (navigator.onLine) {
+          state.lastReroute = 0; // let the next fix try again
+          return;
+        }
+        // No connection: guide in a straight line until a route can be fetched.
+        state.plan = straightLinePlan(point, stop.destination.point);
+        state.offlinePlan = true;
+        state.speed = OFFLINE_SPEED_MS;
+        setStatus({ kind: 'ready' });
+      } else {
+        state.plan = buildNavPlan(first);
+        state.offlinePlan = false;
+        state.speed = first.route.duration_s > 0 ? first.route.distance_m / first.route.duration_s : 0;
+      }
+      const far = distanceMetres(point, stop.destination.point);
       if (far > FAR_AWAY_M) {
         setStatus({ kind: 'error', message: `You're ${Math.round(far / 1000)} km away; the route is long, but navigation will work.` });
       }
@@ -486,7 +534,7 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
     const report = (arrived: boolean) => {
       if (!active) return;
       state.lastReport = Date.now();
-      void reportPosition(active, {
+      const body = {
         lng: point[0],
         lat: point[1],
         heading: state.heading,
@@ -494,7 +542,10 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
         remaining_m: Math.round(progress.remaining_m),
         eta_s: state.speed > 0 ? Math.round(progress.remaining_m / state.speed) : 0,
         arrived,
-      }).catch(() => {});
+      };
+      void reportPosition(active, body).catch(() => {
+        pendingReport.current = { run: active, body };
+      });
     };
 
     if (progress.arrived) {
@@ -509,14 +560,21 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
     // Re-route after a few consecutive off-route fixes, not on one GPS blip.
     state.offRouteFixes = progress.offRoute ? state.offRouteFixes + 1 : 0;
     let rerouting = false;
-    if (state.offRouteFixes >= OFF_ROUTE_FIXES && Date.now() - state.lastReroute > REROUTE_COOLDOWN_MS) {
+    const needsRoute = state.offlinePlan
+      ? Date.now() - state.lastReroute > 5_000
+      : state.offRouteFixes >= OFF_ROUTE_FIXES && Date.now() - state.lastReroute > REROUTE_COOLDOWN_MS;
+    if (navigator.onLine && needsRoute) {
       state.offRouteFixes = 0;
       state.lastReroute = Date.now();
       rerouting = true;
       const stop = active?.stops[active.current];
       if (stop) {
         void fetchRoute(stop.code, point, forProfile, false, stop.claim).then((fresh) => {
-          if (fresh && nav.current.watchId !== null) nav.current.plan = buildNavPlan(fresh);
+          if (fresh && nav.current.watchId !== null) {
+            nav.current.plan = buildNavPlan(fresh);
+            nav.current.offlinePlan = false;
+            nav.current.speed = fresh.route.duration_s > 0 ? fresh.route.distance_m / fresh.route.duration_s : nav.current.speed;
+          }
         });
       }
     }
@@ -549,7 +607,28 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
       setCode(next.code);
       await startDelivery();
     } catch (err) {
-      setRide({ kind: 'pod', saving: false, error: err instanceof RunApiError ? err.message : 'Could not save. Check your connection and try again.' });
+      if (err instanceof RunApiError) {
+        setRide({ kind: 'pod', saving: false, error: err.message });
+        return;
+      }
+      // No connection: keep the proof on the phone, upload it later, and move on.
+      if (!queueProof(active, active.current, input)) {
+        setRide({ kind: 'pod', saving: false, error: 'No connection, and the phone has no room to save this. Try again with a connection.' });
+        return;
+      }
+      setQueued(pendingProofs(active.id).length);
+      setNotice('No connection: delivery saved on this phone. It will upload automatically when you’re back online.');
+      const stops = active.stops.map((st) => (st.stop_index === active.current ? { ...st, status: 'delivered' as const } : st));
+      const next = stops.find((st) => st.status !== 'delivered' && st.status !== 'failed');
+      if (!next) {
+        setRun({ ...active, stops, current: stops.length });
+        setRide({ kind: 'run-done' });
+        return;
+      }
+      setRun({ ...active, stops, current: next.stop_index });
+      setQuery(next.formatted);
+      setCode(next.code);
+      await startDelivery();
     }
   }
 
@@ -674,7 +753,21 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
           <MapModeToggle disabled={busy} className="rounded-lg bg-slate-800 p-0.5" />
         </div>
 
-        {status.kind === 'error' && (
+        {!online && (
+          <p role="status" className="mt-2 rounded-lg bg-amber-950/90 px-3 py-2 text-amber-200">
+            Offline. Navigation continues on your last route; updates and delivery proofs are saved and sent when you’re
+            back online.{queued > 0 && ` ${queued} delivery proof${queued === 1 ? '' : 's'} waiting to upload.`}
+          </p>
+        )}
+        {notice && (
+          <p role="status" className="mt-2 flex items-start justify-between gap-2 rounded-lg bg-slate-800 px-3 py-2 text-slate-200">
+            <span>{notice}</span>
+            <button type="button" onClick={() => setNotice(null)} className="shrink-0 text-slate-400 hover:text-white" aria-label="Dismiss">
+              ✕
+            </button>
+          </p>
+        )}
+        {status.kind === 'error' && online && (
           <p role="alert" className="mt-2 rounded-lg bg-red-950/90 px-3 py-2 text-red-200">
             {status.message}
           </p>

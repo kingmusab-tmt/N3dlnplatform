@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#0b0f14"/>
+  <!-- Map pin -->
+  <path d="M256 70c-82 0-148 64-148 144 0 104 148 228 148 228s148-124 148-228c0-80-66-144-148-144z" fill="#39FF14"/>
+  <!-- Building in the pin -->
+  <rect x="200" y="150" width="112" height="120" rx="10" fill="#0b0f14"/>
+  <rect x="222" y="172" width="22" height="22" rx="3" fill="#39FF14"/>
+  <rect x="268" y="172" width="22" height="22" rx="3" fill="#39FF14"/>
+  <rect x="222" y="212" width="22" height="22" rx="3" fill="#39FF14"/>
+  <rect x="268" y="212" width="22" height="22" rx="3" fill="#39FF14"/>
+  <rect x="244" y="240" width="24" height="30" rx="3" fill="#39FF14"/>
+</svg>

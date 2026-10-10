@@ -54,3 +54,13 @@ export function navProgress(plan: NavPlan, position: LngLat, accuracy_m = 0): Na
     offRoute: offset > Math.max(OFF_ROUTE_M, accuracy_m * 1.5),
   };
 }
+
+/**
+ * A straight-line plan to the destination, for when there's no connection to
+ * fetch a road route: arrival detection and distance still work, and the app
+ * swaps in a real route as soon as it's back online.
+ */
+export function straightLinePlan(from: LngLat, destination: LngLat): NavPlan {
+  const line = measureLine([from, destination]);
+  return { line, steps: [{ instruction: 'Offline: head towards the destination', along: line.length }], destination };
+}
