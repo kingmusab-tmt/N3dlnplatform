@@ -73,7 +73,7 @@ export default function NavigationMap() {
     e.preventDefault();
     const code = normalizePostcode(query);
     if (!code) {
-      setStatus({ kind: 'error', message: 'Enter an 11-character NIPOST code, e.g. FC 02 SIM BP 88.' });
+      setStatus({ kind: 'error', message: 'Enter an 11-character NIPOST code, e.g. FC 02 SIM BP 87.' });
       return;
     }
     await resolveAndShow(`/api/v1/navigate/${encodeURIComponent(code)}`, 'fly');
@@ -159,7 +159,7 @@ export default function NavigationMap() {
             id="nipost-code"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="FC 02 SIM BP 88"
+            placeholder="FC 02 SIM BP 87"
             autoComplete="off"
             spellCheck={false}
             maxLength={24}

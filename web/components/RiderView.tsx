@@ -104,7 +104,7 @@ export default function RiderView({ initialCode }: { initialCode?: string }) {
   async function planFor(input: string) {
     const normalized = normalizePostcode(input);
     if (!normalized) {
-      setStatus({ kind: 'error', message: 'Enter an 11-character NIPOST code, e.g. FC 02 SIM BP 88.' });
+      setStatus({ kind: 'error', message: 'Enter an 11-character NIPOST code, e.g. FC 02 SIM BP 87.' });
       return;
     }
     stopRide();
@@ -300,7 +300,7 @@ export default function RiderView({ initialCode }: { initialCode?: string }) {
           id="rider-code"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Deliver to… FC 02 SIM BP 88"
+          placeholder="Deliver to… FC 02 SIM BP 87"
           autoComplete="off"
           spellCheck={false}
           maxLength={24}

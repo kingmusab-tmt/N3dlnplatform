@@ -147,3 +147,13 @@ describe('createDirectionsClient', () => {
     await expect(client.route([0, 0], [1, 1])).rejects.toBeInstanceOf(DirectionsError);
   });
 });
+
+describe('database TLS', () => {
+  it('is off for local Supabase and verified for hosted databases', async () => {
+    const { sslFor } = await import('@/lib/server/db');
+    expect(sslFor('postgresql://postgres:postgres@127.0.0.1:54322/postgres')).toBe(false);
+    const hosted = sslFor('postgresql://postgres.ref:pw@aws-1-eu-central-1.pooler.supabase.com:6543/postgres');
+    expect(hosted).toMatchObject({ rejectUnauthorized: true });
+    expect((hosted as { ca: string }).ca).toMatch(/BEGIN CERTIFICATE/);
+  });
+});

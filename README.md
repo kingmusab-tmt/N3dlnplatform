@@ -1,6 +1,6 @@
 # NIPOST 3D Logistics & Navigation Platform (MVP)
 
-Resolves a Nigerian digital postcode (e.g. `FC 02 SIM BP 88`) to its exact building footprint, flies a 3D Mapbox camera to it, and routes dispatch riders to the building.
+Resolves a Nigerian digital postcode (e.g. `FC 02 SIM BP 87`) to its exact building footprint, flies a 3D Mapbox camera to it, and routes dispatch riders to the building.
 
 One Next.js app serves both the website and the B2B API, so it deploys as a single Vercel project.
 
@@ -41,17 +41,17 @@ This pulls every building footprint in the box from OpenStreetMap through Overpa
 
 Re-running is safe. Buildings already imported keep their codes and get refreshed footprints, and new OSM buildings get the next free codes.
 
-Codes to try in Wuse 2: `FC 02 SIM BP 88` (Silverbird Cinemas), `FC 02 SIM AV 71` (Promel Hotel), `FC 02 SIM AE 23` (Emab Plaza). `ek01a03fk01` is a demo building in Ado-Ekiti.
+Codes to try in Wuse 2: `FC 02 SIM BP 87` (Silverbird Cinemas), `FC 02 SIM AV 70` (Promel Hotel), `FC 02 SIM AE 23` (Emab Plaza). `ek01a03fk01` is a demo building in Ado-Ekiti.
 
 ## Deploy (Vercel + Supabase)
 
 1. **Database:** create a Supabase project, then run `supabase link --project-ref <ref>` and `supabase db push` to apply the migrations.
 2. **Vercel:** import the repo with **Root Directory = `web`**, then set these environment variables:
-   - `DATABASE_URL`: Supabase's **pooler** connection string (Transaction mode, port 6543). Serverless functions open many short-lived connections, and the pooler stops them exhausting Postgres.
+   - `DATABASE_URL`: Supabase's **pooler** connection string (Transaction mode, port 6543). Serverless functions open many short-lived connections, and the pooler stops them exhausting Postgres. Leave `sslmode` out of the URL: the app always uses TLS with Supabase's root CA (bundled in `lib/server/supabaseCa.ts`) for non-local hosts. For another Postgres host, set `DATABASE_CA_CERT` to its CA (PEM).
    - `NEXT_PUBLIC_MAPBOX_TOKEN`, plus `MAPBOX_TOKEN` (optional; defaults to the public token).
    - `NIPOST_API_KEY` and `NIPOST_LOOKUP_LEVEL`.
    - `SITE_URL`: the public URL, used for share-link previews.
-3. **Data:** load buildings by running `npm run import:osm` locally with `DATABASE_URL` pointed at the hosted database.
+3. **Data:** load buildings by running `DATABASE_URL=<pooler url> npm run import:osm` from `web/`. A variable set on the command line overrides `.env.local`. Codes depend on the OSM data on the day of the first import, so a fresh database can differ by a unit or two from an older local one.
 
 ## API
 

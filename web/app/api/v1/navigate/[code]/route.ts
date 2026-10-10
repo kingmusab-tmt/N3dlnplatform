@@ -12,7 +12,7 @@ export const GET = apiRoute<{ code: string }>(async (_req, { params, deps }) => 
     return jsonError(
       400,
       'INVALID_POSTCODE',
-      'Expected an 11-character NIPOST code, e.g. "FC 02 SIM BP 88" (spaces and dashes are optional).',
+      'Expected an 11-character NIPOST code, e.g. "FC 02 SIM BP 87" (spaces and dashes are optional).',
     );
   }
 

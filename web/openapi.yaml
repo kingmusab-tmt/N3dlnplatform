@@ -8,8 +8,8 @@ info:
 
     **Postcodes** have 11 characters in 5 segments: State (2 letters), LGA (2 digits),
     District (3 alphanumerics), Area (2 letters), Building unit (2 digits), e.g.
-    `FC 02 SIM BP 88`. Spaces, dashes and letter case are ignored, so `fc-02-sim-bp-88`
-    and `FC02SIMBP88` are the same code. Responses always use the compact form
+    `FC 02 SIM BP 87`. Spaces, dashes and letter case are ignored, so `fc-02-sim-bp-87`
+    and `FC02SIMBP87` are the same code. Responses always use the compact form
     (`code`) plus a display form (`formatted`).
 
     **Coordinates** are WGS84 `[longitude, latitude]` in that order, as in GeoJSON.
@@ -279,7 +279,7 @@ components:
       in: path
       required: true
       description: NIPOST postcode in any spacing or case.
-      schema: { type: string, example: FC-02-SIM-BP-88 }
+      schema: { type: string, example: FC-02-SIM-BP-87 }
 
   securitySchemes:
     ApiKeyAuth:
@@ -361,7 +361,7 @@ components:
       required: [nipost_code]
       additionalProperties: true
       properties:
-        nipost_code: { type: string, example: FC02SIMBP88 }
+        nipost_code: { type: string, example: FC02SIMBP87 }
         name: { type: string, example: Silverbird Cinemas & Shopping Centre }
         building_type: { type: string, example: commercial }
         height_m: { type: number, example: 12.8 }
@@ -398,8 +398,8 @@ components:
       type: object
       required: [code, formatted, segments, center, bbox, building]
       properties:
-        code: { type: string, example: FC02SIMBP88 }
-        formatted: { type: string, example: FC 02 SIM BP 88 }
+        code: { type: string, example: FC02SIMBP87 }
+        formatted: { type: string, example: FC 02 SIM BP 87 }
         segments: { $ref: '#/components/schemas/Segments' }
         source:
           type: string
@@ -492,8 +492,8 @@ components:
       type: object
       properties:
         id: { type: string, format: uuid }
-        code: { type: string, example: FC02SIMBP88 }
-        formatted: { type: string, example: FC 02 SIM BP 88 }
+        code: { type: string, example: FC02SIMBP87 }
+        formatted: { type: string, example: FC 02 SIM BP 87 }
         label: { type: string }
         delivery_notes: { type: string, nullable: true }
         status: { $ref: '#/components/schemas/ClaimStatus' }
