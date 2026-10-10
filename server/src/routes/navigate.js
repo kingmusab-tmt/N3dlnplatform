@@ -1,37 +1,8 @@
 import { Router } from 'express';
 import { NipostError } from '../lib/nipost.js';
-import { formatPostcode, normalizePostcode, parsePostcode } from '../lib/postcode.js';
+import { LOOKUP_BY_CODE_SQL, LOOKUP_BY_POINT_SQL, baseBody, buildingBody } from '../lib/buildings.js';
+import { formatPostcode, normalizePostcode } from '../lib/postcode.js';
 
-// Postgres builds the GeoJSON itself, so geometry never round-trips through JS.
-// ST_AsGeoJSON(..., 7) keeps 7 decimal places (~1 cm), plenty for a gate.
-const BUILDING_COLUMNS = `
-    id,
-    nipost_code,
-    metadata,
-    ST_AsGeoJSON(geom, 7)::json         AS polygon,
-    ST_AsGeoJSON(center_point, 7)::json AS center,
-    json_build_array(ST_XMin(geom), ST_YMin(geom), ST_XMax(geom), ST_YMax(geom)) AS bbox
-`;
-
-const LOOKUP_BY_CODE_SQL = `
-  SELECT ${BUILDING_COLUMNS}
-  FROM buildings
-  WHERE nipost_code = $1
-  LIMIT 1
-`;
-
-// Footprint containing (or nearest within $3 metres of) a NIPOST point.
-// The && box (~0.001° ≈ 110 m) lets the GIST index prune before the exact distance.
-const LOOKUP_BY_POINT_SQL = `
-  WITH p AS (SELECT ST_SetSRID(ST_MakePoint($1, $2), 4326) AS pt)
-  SELECT ${BUILDING_COLUMNS},
-         ST_Distance(geom::geography, p.pt::geography) AS distance_m
-  FROM buildings, p
-  WHERE geom && ST_Expand(p.pt, 0.001)
-    AND ST_DWithin(geom::geography, p.pt::geography, $3)
-  ORDER BY distance_m
-  LIMIT 1
-`;
 const FOOTPRINT_MATCH_RADIUS_M = 30;
 
 /**
@@ -61,7 +32,7 @@ export function createNavigateRouter(db, nipost = null) {
       const verification = nipostResult.verification;
 
       if (rows.length > 0) {
-        return sendBuilding(res, code, rows[0], { verification, source: 'platform' });
+        return res.json(buildingBody(code, rows[0], { verification, source: 'platform' }));
       }
 
       const lookup = nipostResult.lookup;
@@ -70,12 +41,12 @@ export function createNavigateRouter(db, nipost = null) {
         const [lng, lat] = lookup.point;
         const match = await db.query(LOOKUP_BY_POINT_SQL, [lng, lat, FOOTPRINT_MATCH_RADIUS_M]);
         if (match.rows.length > 0) {
-          return sendBuilding(res, code, match.rows[0], {
+          return res.json(buildingBody(code, match.rows[0], {
             verification,
             source: 'nipost',
             nipostPoint: lookup.point,
             footprintMatch: { distance_m: Math.round(match.rows[0].distance_m * 10) / 10 },
-          });
+          }));
         }
         // No footprint mapped there yet: return NIPOST's point on its own.
         return res.json({
@@ -147,26 +118,3 @@ function notFoundMessage(code, status) {
   return `No building is registered for ${formatted}.`;
 }
 
-function baseBody(code) {
-  return { code, formatted: formatPostcode(code), segments: parsePostcode(code) };
-}
-
-function sendBuilding(res, code, row, extra) {
-  return res.json({
-    ...baseBody(code),
-    ...extra,
-    center: row.center.coordinates, // [lng, lat]
-    bbox: row.bbox, // [minLng, minLat, maxLng, maxLat]
-    building: {
-      type: 'Feature',
-      id: row.id,
-      geometry: row.polygon,
-      properties: { ...row.metadata, nipost_code: code },
-    },
-    centerPoint: {
-      type: 'Feature',
-      geometry: row.center,
-      properties: { nipost_code: code, role: 'center' },
-    },
-  });
-}

@@ -53,6 +53,15 @@ Codes to try in Wuse 2: `FC 02 SIM BP 88` (Silverbird Cinemas), `FC 02 SIM AV 71
 
 Every response includes `verification.status`. It is `verified` or `unregistered` when NIPOST answered, `unavailable` when NIPOST couldn't be reached, and `not_configured` when no key is set. A code that NIPOST recognises but that has no footprint on this platform returns 404 `POSTCODE_NOT_MAPPED`.
 
+### Pin-drop and claims
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/buildings/at?lng=&lat=` | Building under a map click: the containing footprint, or the nearest within 12 m. Same response shape as `/navigate`, plus `pin`. 404 `NO_BUILDING_HERE` on empty ground. |
+| `POST /api/v1/buildings/:code/claims` | Body `{ label, delivery_notes? }` (max 80 and 500 characters). Returns 201 with the claim's `id`. Rate limited to 20 per IP per hour. |
+
+Claims are **unverified**. There are no user accounts yet, so anyone can claim any building, and one building can have several claims (flats, shops). The `claims` table has RLS enabled with no public policies, so Supabase's public REST API can't read anyone's delivery notes.
+
 ### NIPOST integration
 
 Set `NIPOST_API_KEY` in `server/.env`. Use a **secret** key (`nipost_test_…` / `nipost_live_…`), never a publishable one. Then set `NIPOST_LOOKUP_LEVEL` to the highest level your key is granted:

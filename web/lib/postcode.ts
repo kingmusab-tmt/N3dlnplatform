@@ -21,11 +21,24 @@ export type NavigateResponse = {
   formatted: string;
   segments: { state: string; lga: string; district: string; area: string; building: string };
   source: 'platform' | 'nipost';
-  verification: Verification;
+  /** Present on code searches; absent when the building was picked on the map. */
+  verification?: Verification;
+  /** Present when the building was picked on the map. */
+  pin?: { lng: number; lat: number; distance_m: number };
   center: [number, number];
   bbox: [number, number, number, number] | null;
   /** null when NIPOST supplied a point but no footprint is mapped there yet. */
   building: Feature<Polygon, { nipost_code: string; height_m?: number; [k: string]: unknown }> | null;
   centerPoint?: Feature<Point>;
   nipostPoint?: [number, number];
+};
+
+export type Claim = {
+  id: string;
+  code: string;
+  formatted: string;
+  label: string;
+  delivery_notes: string | null;
+  status: 'unverified' | 'verified' | 'rejected';
+  created_at: string;
 };

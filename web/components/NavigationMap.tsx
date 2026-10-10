@@ -2,7 +2,7 @@
 
 import type { GeoJSONSource, Map as MapboxMap, Marker } from 'mapbox-gl';
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import { normalizePostcode, type NavigateResponse, type Verification } from '@/lib/postcode';
+import { normalizePostcode, type Claim, type NavigateResponse, type Verification } from '@/lib/postcode';
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 const NEON_GREEN = '#39FF14';
@@ -48,6 +48,7 @@ export default function NavigationMap() {
         map.on('style.load', () => {
           if (cancelled) return;
           addBuildingLayers(map);
+          map.on('click', (e) => mapClickRef.current(e.lngLat.lng, e.lngLat.lat));
           resolve(map);
         });
       });
@@ -62,22 +63,33 @@ export default function NavigationMap() {
     };
   }, []);
 
-  // ---- Search ---------------------------------------------------------------
+  // ---- Search & pin-drop ----------------------------------------------------
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const code = normalizePostcode(query);
     if (!code) {
-      setStatus({ kind: 'error', message: 'Enter an 11-character NIPOST code, e.g. FC 02 A09 DB 09.' });
+      setStatus({ kind: 'error', message: 'Enter an 11-character NIPOST code, e.g. FC 02 SIM BP 88.' });
       return;
     }
+    await resolveAndShow(`/api/v1/navigate/${encodeURIComponent(code)}`, 'fly');
+  }
 
+  // Map click: find the building under the pointer and show its code.
+  async function handleMapClick(lng: number, lat: number) {
+    const result = await resolveAndShow(`/api/v1/buildings/at?lng=${lng}&lat=${lat}`, 'stay');
+    if (result) setQuery(result.formatted);
+  }
+  const mapClickRef = useRef(handleMapClick);
+  mapClickRef.current = handleMapClick;
+
+  async function resolveAndShow(url: string, camera: 'fly' | 'stay') {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     setStatus({ kind: 'loading' });
 
     try {
-      const res = await fetch(`/api/v1/navigate/${encodeURIComponent(code)}`, { signal: controller.signal });
+      const res = await fetch(url, { signal: controller.signal });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
         throw new Error(body?.message ?? `Lookup failed (HTTP ${res.status}).`);
@@ -87,14 +99,16 @@ export default function NavigationMap() {
       setStatus({ kind: 'found', result });
 
       const map = await mapReady.current;
-      if (map && !controller.signal.aborted) await showBuilding(map, result);
+      if (map && !controller.signal.aborted) await showBuilding(map, result, camera);
+      return result;
     } catch (err) {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) return null;
       setStatus({ kind: 'error', message: err instanceof Error ? err.message : 'Lookup failed.' });
+      return null;
     }
   }
 
-  async function showBuilding(map: MapboxMap, result: NavigateResponse) {
+  async function showBuilding(map: MapboxMap, result: NavigateResponse, camera: 'fly' | 'stay') {
     (map.getSource(TARGET_SOURCE) as GeoJSONSource).setData(
       result.building ?? { type: 'FeatureCollection', features: [] },
     );
@@ -104,6 +118,9 @@ export default function NavigationMap() {
     markerRef.current = new mapboxgl.Marker({ element: createPinElement(), anchor: 'bottom' })
       .setLngLat(result.center)
       .addTo(map);
+
+    // A click while already zoomed in just highlights; don't yank the camera.
+    if (camera === 'stay' && map.getZoom() >= 16.5) return;
 
     map.flyTo({
       center: result.center,
@@ -142,7 +159,7 @@ export default function NavigationMap() {
             id="nipost-code"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="FC 02 A09 DB 09"
+            placeholder="FC 02 SIM BP 88"
             autoComplete="off"
             spellCheck={false}
             maxLength={24}
@@ -163,7 +180,13 @@ export default function NavigationMap() {
           </p>
         )}
 
-        {status.kind === 'found' && <ResultCard result={status.result} />}
+        {status.kind === 'idle' && (
+          <p className="mt-2 rounded-lg bg-slate-900/85 px-3 py-2 text-sm text-slate-400 backdrop-blur">
+            Search a postcode, or click any building on the map to see its code.
+          </p>
+        )}
+
+        {status.kind === 'found' && <ResultCard key={status.result.code} result={status.result} />}
       </div>
     </div>
   );
@@ -196,7 +219,7 @@ function ResultCard({ result }: { result: NavigateResponse }) {
     <div className="mt-2 rounded-xl border border-white/10 bg-slate-900/85 p-4 text-sm shadow-2xl backdrop-blur">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-mono text-lg tracking-widest text-[#39FF14]">{result.formatted}</p>
-        <VerificationBadge verification={result.verification} />
+        {result.verification && <VerificationBadge verification={result.verification} />}
       </div>
       {name && <p className="mt-1 font-medium">{name}</p>}
       {!result.building && (
@@ -214,7 +237,118 @@ function ResultCard({ result }: { result: NavigateResponse }) {
           {lat.toFixed(6)}, {lng.toFixed(6)}
         </dd>
       </dl>
+      {result.building && <ClaimPanel code={result.code} formatted={result.formatted} />}
     </div>
+  );
+}
+
+const LABEL_MAX = 80;
+const NOTES_MAX = 500;
+
+type ClaimState =
+  | { kind: 'closed' }
+  | { kind: 'editing'; error?: string }
+  | { kind: 'saving' }
+  | { kind: 'claimed'; claim: Claim };
+
+function ClaimPanel({ code, formatted }: { code: string; formatted: string }) {
+  const [state, setState] = useState<ClaimState>({ kind: 'closed' });
+  const [label, setLabel] = useState('');
+  const [notes, setNotes] = useState('');
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!label.trim()) {
+      setState({ kind: 'editing', error: 'Give this place a name, e.g. "Home" or "Flat 3B".' });
+      return;
+    }
+    setState({ kind: 'saving' });
+    try {
+      const res = await fetch(`/api/v1/buildings/${encodeURIComponent(code)}/claims`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label, delivery_notes: notes }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.message ?? `Claim failed (HTTP ${res.status}).`);
+      setState({ kind: 'claimed', claim: body as Claim });
+    } catch (err) {
+      setState({ kind: 'editing', error: err instanceof Error ? err.message : 'Claim failed.' });
+    }
+  }
+
+  if (state.kind === 'closed') {
+    return (
+      <button
+        type="button"
+        onClick={() => setState({ kind: 'editing' })}
+        className="mt-3 w-full rounded-lg border border-[#39FF14]/40 px-3 py-2 font-medium text-[#39FF14] transition hover:bg-[#39FF14]/10"
+      >
+        This is my place: claim {formatted}
+      </button>
+    );
+  }
+
+  if (state.kind === 'claimed') {
+    return (
+      <div className="mt-3 rounded-lg bg-emerald-500/10 p-3 ring-1 ring-emerald-400/30">
+        <p className="font-medium text-emerald-300">Claimed as “{state.claim.label}”</p>
+        {state.claim.delivery_notes && <p className="mt-1 text-slate-300">{state.claim.delivery_notes}</p>}
+        <p className="mt-2 text-xs text-slate-500">
+          Unverified claim · ID <span className="font-mono">{state.claim.id.slice(0, 8)}</span>
+        </p>
+      </div>
+    );
+  }
+
+  const saving = state.kind === 'saving';
+  return (
+    <form onSubmit={submit} className="mt-3 space-y-2 border-t border-white/10 pt-3">
+      <label className="block">
+        <span className="text-xs text-slate-400">Name for this place</span>
+        <input
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          maxLength={LABEL_MAX}
+          placeholder="Home, Flat 3B, Ade's shop…"
+          autoFocus
+          className="mt-1 w-full rounded-lg bg-slate-800 px-3 py-2 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#39FF14]"
+        />
+      </label>
+      <label className="block">
+        <span className="text-xs text-slate-400">Delivery notes for riders (optional)</span>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          maxLength={NOTES_MAX}
+          rows={2}
+          placeholder="Blue gate on the left, ring the bell twice"
+          className="mt-1 w-full resize-none rounded-lg bg-slate-800 px-3 py-2 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#39FF14]"
+        />
+      </label>
+      {state.kind === 'editing' && state.error && (
+        <p role="alert" className="text-sm text-red-300">
+          {state.error}
+        </p>
+      )}
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={saving}
+          className="flex-1 rounded-lg bg-[#39FF14] px-3 py-2 font-semibold text-slate-950 transition hover:brightness-110 disabled:opacity-60"
+        >
+          {saving ? 'Saving…' : 'Claim'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setState({ kind: 'closed' })}
+          disabled={saving}
+          className="rounded-lg px-3 py-2 text-slate-400 hover:text-slate-200"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }
 
