@@ -2,6 +2,7 @@
 // Tests swap them out with setDepsForTesting().
 import 'server-only';
 import { createKeyStore, type KeyStore } from './apiKeys';
+import { createAuthReader, type AuthReader } from './auth';
 import { getPool, type Db } from './db';
 import { createDirectionsClient, type DirectionsClient } from './directions';
 import { createNipostClient, type NipostClient } from './nipost';
@@ -13,6 +14,8 @@ export type Deps = {
   directions: DirectionsClient | null;
   limiter: Limiter;
   keys: KeyStore;
+  /** The signed-in website user, from the Supabase session cookie. */
+  auth: AuthReader;
 };
 
 let deps: Deps | null = null;
@@ -35,7 +38,7 @@ export function getDeps(): Deps {
   if (!nipost) console.warn('NIPOST_API_KEY not set: postcodes will not be verified against NIPOST.');
   if (!directions) console.warn('No Mapbox token: /navigate/:code/route is disabled.');
 
-  deps = { db, nipost, directions, limiter: createPostgresLimiter(db), keys: createKeyStore(db) };
+  deps = { db, nipost, directions, limiter: createPostgresLimiter(db), keys: createKeyStore(db), auth: createAuthReader() };
   return deps;
 }
 

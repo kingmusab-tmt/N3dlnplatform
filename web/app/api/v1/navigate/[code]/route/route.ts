@@ -3,7 +3,7 @@
 // "last mile" from where the road ends to the gate (or building center).
 import { formatPostcode, normalizePostcode } from '@/lib/postcode';
 import { LOOKUP_BY_CODE_SQL, buildingBody } from '@/lib/server/buildings';
-import { getClaimGate } from '@/lib/server/claims';
+import { getSharedGate } from '@/lib/server/claims';
 import { DirectionsError, PROFILES, type Profile } from '@/lib/server/directions';
 import { apiRoute, jsonError, parseLngLat } from '@/lib/server/http';
 import { destinationFor, lastMileLeg } from '@/lib/server/navigate';
@@ -27,9 +27,9 @@ export const GET = apiRoute<{ code: string }>(async (req, { params, deps }) => {
     return jsonError(404, 'POSTCODE_NOT_FOUND', `No building is registered for ${formatPostcode(code)}.`);
   }
   const row = rows[0];
-  // A shared link's owner may have marked their own gate; it beats the building default.
+  // A shared link (claim = its share id) may carry the owner's own gate; it beats the building default.
   const claimId = query.get('claim');
-  const claimGate = claimId ? await getClaimGate(deps.db, claimId, code) : null;
+  const claimGate = claimId ? await getSharedGate(deps.db, claimId, code) : null;
   const destination = claimGate
     ? { point: claimGate, kind: 'gate' as const, source: 'claim' as const }
     : destinationFor(row);

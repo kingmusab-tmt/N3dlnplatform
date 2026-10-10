@@ -1,5 +1,6 @@
 import { afterEach } from 'vitest';
 import { createKeyStore } from '@/lib/server/apiKeys';
+import type { SessionUser } from '@/lib/server/auth';
 import type { Db } from '@/lib/server/db';
 import { setDepsForTesting, type Deps } from '@/lib/server/deps';
 import { createMemoryLimiter } from '@/lib/server/rateLimit';
@@ -20,13 +21,19 @@ export const ROW = {
   distance_m: 0,
 };
 
-/** Installs fake dependencies for the route handlers; reset after each test. */
-export function useDeps(overrides: Partial<Deps> & { db: Db }): Deps {
+export const USER: SessionUser = { id: '11111111-1111-4111-8111-111111111111', email: 'owner@example.com', phone: null };
+
+/**
+ * Installs fake dependencies for the route handlers; reset after each test.
+ * `user` is who's signed in on the website (default: nobody).
+ */
+export function useDeps({ user = null, ...overrides }: Partial<Deps> & { db: Db; user?: SessionUser | null }): Deps {
   const deps: Deps = {
     nipost: null,
     directions: null,
     limiter: createMemoryLimiter(),
     keys: createKeyStore(overrides.db),
+    auth: { configured: true, getUser: async () => user },
     ...overrides,
   };
   setDepsForTesting(deps);

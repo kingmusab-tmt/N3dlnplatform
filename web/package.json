@@ -11,6 +11,8 @@
     "keys": "tsx --env-file=.env.local scripts/keys.ts"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.7.0",
+    "@supabase/supabase-js": "^2.117.3",
     "mapbox-gl": "^3.9.4",
     "next": "^15.1.6",
     "pg": "^8.23.1",

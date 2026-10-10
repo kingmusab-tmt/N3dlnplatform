@@ -12,7 +12,11 @@ Owner: **you** = needs your accounts or a decision · **dev** = code work.
 
 - [x] **Vehicle icons in Simulate ride:** a car, bicycle or walking person instead of the dot, matching the travel mode and rotating with the road. *(done)*
 - [x] **"Start delivery" live navigation:** follow the rider's real GPS, show the next turn and distance left, re-route when off course, detect arrival at the gate, and keep the screen awake. *(done; needs a real-world ride in the field test)*
-- [ ] **User accounts** (Supabase Auth, phone or email): edit and delete your claims, revoke a share link, and see "my places". *(dev)*
+- [x] **User accounts** (Supabase Auth, email or SMS code): My places, with edit, delete and revoke-and-replace share links. *(done in code; production needs the setup items below)*
+- [ ] **Turn on accounts in production:** add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` in Vercel; in Supabase, put the code (`{{ .Token }}`) in the Magic Link and Confirm signup email templates and set the Site URL. Until then, claims stay anonymous. *(you)*
+- [ ] **SMS for phone sign-in:** an SMS provider account (Twilio, Vonage or MessageBird are built in; Termii needs Supabase's Send SMS hook), configured in Supabase → Authentication → Providers → Phone. *(you, then dev to verify)*
+- [ ] **Custom email sender** (e.g. Resend) in Supabase → Authentication → SMTP. The built-in sender only allows a few emails an hour. *(you)*
+- [ ] **Re-mark a gate from My places.** You can remove a gate there, but setting a new one still means re-claiming. *(dev)*
 - [ ] **Lite map mode** for budget phones and limited data: flat map, no terrain or 3D trees, fewer tiles. *(dev)*
 - [ ] **More coverage:** import the next pilot area (e.g. Ikeja) with `npm run import:osm -- --bbox … --state LA --lga …`. *(dev; you pick the area)*
 - [ ] **Partner self-service:** request an API key, see usage, and count requests per key for billing. *(dev)*

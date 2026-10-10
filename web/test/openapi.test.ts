@@ -9,7 +9,7 @@ import { GET as docs } from '@/app/api/v1/docs/route';
 import { GET as specRoute } from '@/app/api/v1/openapi.yaml/route';
 import { generateKey } from '@/lib/server/apiKeys';
 import { OPENAPI_PATH } from '@/lib/server/openapi';
-import { ROW, call, useDeps } from './helpers';
+import { ROW, USER, call, useDeps } from './helpers';
 
 const TEST_KEY = generateKey();
 const CLAIM_ID = '3f2b8c1e-9a4d-4e7b-8c2a-1d5e6f7a8b9c';
@@ -28,8 +28,17 @@ function routeFiles(dir = API_DIR): { apiPath: string; file: string }[] {
   });
 }
 
+const OWNED = {
+  id: CLAIM_ID, share_token: CLAIM_ID, label: 'Flat 3B', delivery_notes: null, status: 'unverified',
+  created_at: '2026-10-10T00:00:00Z', gate_lng: null, gate_lat: null, nipost_code: 'FC02SIMBP88', building_name: 'Silverbird',
+};
+
 const fakeDb = {
   async query(sql: string, params: any[] = []) {
+    // Owner ("My places") queries
+    if (sql.includes('DELETE FROM claims')) return { rows: [], rowCount: 1 };
+    if (sql.includes('c.user_id = $2') && sql.includes('ST_Distance')) return { rows: [{ distance_m: 5 }] };
+    if (sql.includes('UPDATE claims c') || sql.includes('WHERE c.user_id = $1')) return { rows: [OWNED] };
     if (sql.includes('FROM api_keys')) {
       return { rows: params[0] === TEST_KEY.hash ? [{ id: 1, name: 'Test partner', rate_limit_per_min: 1000 }] : [] };
     }
@@ -38,7 +47,7 @@ const fakeDb = {
       return { rows: [{ id: CLAIM_ID, label: 'Flat 3B', delivery_notes: null, status: 'unverified', created_at: new Date().toISOString() }] };
     }
     if (sql.includes('FROM claims c')) {
-      return { rows: [{ ...ROW, claim_id: CLAIM_ID, label: 'Flat 3B', delivery_notes: null, status: 'unverified', created_at: '2026-10-10T00:00:00Z' }] };
+      return { rows: [{ ...ROW, share_token: CLAIM_ID, label: 'Flat 3B', delivery_notes: null, status: 'unverified', created_at: '2026-10-10T00:00:00Z' }] };
     }
     return { rows: [ROW] };
   },
@@ -102,20 +111,26 @@ describe('OpenAPI spec', () => {
         const target = `${url}${query.size ? `?${query}` : ''}`;
         const label = `${method.toUpperCase()} ${apiPath}`;
 
+        const security: Record<string, unknown>[] = op.security ?? spec.security ?? [];
+        const sessionOnly = security.some((s) => 'SessionCookie' in s);
+        const secured = security.length > 0;
+
         useDeps({ db: fakeDb, directions: fakeDirections });
-        const secured = (op.security ?? spec.security ?? []).length > 0;
         if (secured) {
-          const anon = await call(handler, target, { method: method.toUpperCase(), params, body, web: false });
-          expect(anon.status, `${label} should require a key`).toBe(401);
+          // No key and no session: rejected.
+          const anon = await call(handler, target, { method: method.toUpperCase(), params, body, web: sessionOnly });
+          expect(anon.status, `${label} should require ${sessionOnly ? 'a session' : 'a key'}`).toBe(401);
           expect(op.responses['401'], `${label} should document 401`).toBeTruthy();
         }
 
+        // Session endpoints are called as a signed-in website user; the rest with a partner key.
+        useDeps({ db: fakeDb, directions: fakeDirections, user: sessionOnly ? USER : null });
         const res = await call(handler, target, {
           method: method.toUpperCase(),
           params,
           body,
-          web: false,
-          headers: secured ? { 'x-api-key': TEST_KEY.key } : {},
+          web: sessionOnly,
+          headers: secured && !sessionOnly ? { 'x-api-key': TEST_KEY.key } : {},
         });
         expect(Object.keys(op.responses), `${label} returned ${res.status}`).toContain(String(res.status));
         expect(res.status, `${label} example request failed`).toBeLessThan(400);

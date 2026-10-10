@@ -39,6 +39,10 @@ tags:
     description: Rider routes to a building.
   - name: Claims
     description: Owner-submitted home profiles and shareable links.
+  - name: Account
+    description: |
+      A signed-in website user's own places. These use the website's Supabase Auth session
+      cookie, not partner API keys: accounts belong to people, not integrations.
   - name: Maps
     description: Map data for drawing the platform's buildings.
   - name: System
@@ -104,7 +108,7 @@ paths:
           in: query
           required: false
           description: |
-            Id of a claim on this building (from a shared `/h/{id}` link). If its owner marked
+            Share id of a claim on this building (from a `/h/{share_id}` link). If its owner marked
             a gate, the route ends there (`destination.source: claim`).
           schema: { type: string, format: uuid }
       responses:
@@ -190,9 +194,11 @@ paths:
       operationId: createClaim
       summary: Claim a building as your place
       description: |
-        Attaches a label and delivery notes to a building and returns a claim `id`.
-        The shareable link is `/h/{id}`. Claims are **unverified**: there are no user
-        accounts yet. Rate limited to 20 per IP per hour.
+        Attaches a label, delivery notes and optionally a gate to a building. The response's
+        `share_id` makes the shareable link `/h/{share_id}`; keep `id` to manage the claim.
+        Claims are **unverified**. From this website the user must be signed in (`401
+        SIGN_IN_REQUIRED` otherwise) and owns the claim; claims created with a partner API
+        key have no owner. Rate limited to 20 per caller per hour.
       parameters:
         - $ref: '#/components/parameters/Code'
       requestBody:
@@ -229,12 +235,14 @@ paths:
       operationId: getClaim
       summary: Get a shared place
       description: |
-        The home profile behind a shareable link. Knowing the id is the only access
-        control, so treat ids as secrets.
+        The home profile behind a shareable link `/h/{share_id}`. Knowing the share id is
+        the only access control, so treat it as a secret. Owners can revoke it by issuing a
+        new one (`POST /api/v1/me/claims/{id}/share-link`), after which this returns 404.
       parameters:
         - name: id
           in: path
           required: true
+          description: The claim's share id.
           schema: { type: string, format: uuid }
       responses:
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -252,7 +260,7 @@ paths:
                       claim:
                         type: object
                         properties:
-                          id: { type: string, format: uuid }
+                          share_id: { type: string, format: uuid }
                           label: { type: string }
                           delivery_notes: { type: string, nullable: true }
                           gate: { $ref: '#/components/schemas/Gate' }
@@ -263,6 +271,91 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/me/claims:
+    get:
+      tags: [Account]
+      operationId: listMyClaims
+      summary: List my places
+      security:
+        - SessionCookie: []
+      responses:
+        '200':
+          description: The signed-in user's claims, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  claims:
+                    type: array
+                    items: { $ref: '#/components/schemas/Claim' }
+        '401': { $ref: '#/components/responses/SignInRequired' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/me/claims/{id}:
+    patch:
+      tags: [Account]
+      operationId: updateMyClaim
+      summary: Edit one of my places
+      description: "Send only the fields to change. `gate: null` removes the gate."
+      security:
+        - SessionCookie: []
+      parameters:
+        - { name: id, in: path, required: true, description: "The claim id (not the share id).", schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClaimUpdate' }
+      responses:
+        '200':
+          description: The updated claim.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Claim' }
+        '400':
+          description: '`INVALID_CLAIM` or `GATE_TOO_FAR`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/SignInRequired' }
+        '404': { $ref: '#/components/responses/ClaimNotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    delete:
+      tags: [Account]
+      operationId: deleteMyClaim
+      summary: Delete one of my places
+      description: Its share link stops working immediately.
+      security:
+        - SessionCookie: []
+      parameters:
+        - { name: id, in: path, required: true, description: "The claim id (not the share id).", schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Deleted. }
+        '401': { $ref: '#/components/responses/SignInRequired' }
+        '404': { $ref: '#/components/responses/ClaimNotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/me/claims/{id}/share-link:
+    post:
+      tags: [Account]
+      operationId: rotateMyShareLink
+      summary: Revoke and replace a share link
+      description: Issues a new `share_id`. Anyone holding the old link loses access.
+      security:
+        - SessionCookie: []
+      parameters:
+        - { name: id, in: path, required: true, description: "The claim id (not the share id).", schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The claim with its new `share_id`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Claim' }
+        '401': { $ref: '#/components/responses/SignInRequired' }
+        '404': { $ref: '#/components/responses/ClaimNotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
 
   /api/v1/tiles/buildings/{z}/{x}/{y}:
     get:
@@ -328,6 +421,11 @@ components:
       schema: { type: string, example: FC-02-SIM-BP-87 }
 
   securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: sb-<project-ref>-auth-token
+      description: Supabase Auth session cookie set by signing in on this website (email or SMS code).
     ApiKeyAuth:
       type: apiKey
       in: header
@@ -345,6 +443,16 @@ components:
       headers:
         Retry-After:
           schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    SignInRequired:
+      description: '`SIGN_IN_REQUIRED`: sign in on the website first.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ClaimNotFound:
+      description: '`CLAIM_NOT_FOUND`: no such claim in your account.'
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -549,12 +657,22 @@ components:
         delivery_notes: { type: string, maxLength: 500, example: 'Blue gate on the left, ring twice' }
         gate: { $ref: '#/components/schemas/Gate' }
 
-    Claim:
+    ClaimUpdate:
       type: object
       properties:
-        id: { type: string, format: uuid }
+        label: { type: string, minLength: 1, maxLength: 80, example: Flat 3B }
+        delivery_notes: { type: string, maxLength: 500, example: 'Blue gate on the left, ring twice' }
+        gate: { $ref: '#/components/schemas/Gate' }
+
+    Claim:
+      type: object
+      description: A claim as its owner (or the partner that created it) sees it.
+      properties:
+        id: { type: string, format: uuid, description: 'Claim id, for managing it.' }
+        share_id: { type: string, format: uuid, description: 'Public link id: /h/{share_id}.' }
         code: { type: string, example: FC02SIMBP87 }
         formatted: { type: string, example: FC 02 SIM BP 87 }
+        building_name: { type: string, nullable: true, example: Silverbird Cinemas & Shopping Centre }
         label: { type: string }
         delivery_notes: { type: string, nullable: true }
         gate: { $ref: '#/components/schemas/Gate' }

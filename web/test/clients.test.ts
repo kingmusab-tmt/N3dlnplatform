@@ -157,3 +157,14 @@ describe('database TLS', () => {
     expect((hosted as { ca: string }).ca).toMatch(/BEGIN CERTIFICATE/);
   });
 });
+
+describe('normalizePhone', () => {
+  it('accepts common Nigerian formats and international numbers', async () => {
+    const { normalizePhone } = await import('@/lib/postcode');
+    for (const input of ['0803 123 4567', '803-123-4567', '2348031234567', '+234 803 123 4567']) {
+      expect(normalizePhone(input)).toBe('+2348031234567');
+    }
+    expect(normalizePhone('+44 20 7946 0958')).toBe('+442079460958');
+    expect(normalizePhone('12')).toBeNull();
+  });
+});

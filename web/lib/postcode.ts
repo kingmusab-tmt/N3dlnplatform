@@ -63,10 +63,14 @@ export type NavigateResponse = {
 
 export type Gate = { lng: number; lat: number };
 
+/** A claim as its owner sees it (creation response, "My places"). */
 export type Claim = {
   id: string;
+  /** Public link id: /h/{share_id}. */
+  share_id: string;
   code: string;
   formatted: string;
+  building_name: string | null;
   label: string;
   delivery_notes: string | null;
   gate: Gate | null;
@@ -74,10 +78,21 @@ export type Claim = {
   created_at: string;
 };
 
-/** A claimed building as served behind a shareable /h/<id> link. */
+/** A claimed building as served behind a shareable /h/<share_id> link. */
 export type SharedPlace = NavigateResponse & {
-  claim: Omit<Claim, 'code' | 'formatted'>;
+  claim: Pick<Claim, 'share_id' | 'label' | 'delivery_notes' | 'gate' | 'status' | 'created_at'>;
 };
+
+/** "0803 123 4567", "803…", "+234 803…" -> "+2348031234567" (Nigerian numbers by default). */
+export function normalizePhone(input: string): string | null {
+  const digits = input.replace(/[^\d+]/g, '');
+  let e164: string;
+  if (digits.startsWith('+')) e164 = digits;
+  else if (digits.startsWith('234')) e164 = `+${digits}`;
+  else if (digits.startsWith('0')) e164 = `+234${digits.slice(1)}`;
+  else e164 = `+234${digits}`;
+  return /^\+\d{10,15}$/.test(e164) ? e164 : null;
+}
 
 /**
  * Where a rider should head: the owner's marked gate on a shared place, then

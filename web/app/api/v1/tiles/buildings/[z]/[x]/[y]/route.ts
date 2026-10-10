@@ -52,6 +52,7 @@ export const GET = apiRoute<{ z: string; x: string; y: string }>(
 );
 
 function cacheHeaders() {
-  // Browsers revalidate hourly; Vercel's CDN keeps tiles for a day.
-  return { 'Cache-Control': 'public, max-age=3600, s-maxage=86400' };
+  // Browsers revalidate hourly; Vercel's CDN keeps tiles for a day. Tiles skip
+  // middleware (see middleware.ts), so they carry their own CORS header.
+  return { 'Cache-Control': 'public, max-age=3600, s-maxage=86400', 'Access-Control-Allow-Origin': '*' };
 }

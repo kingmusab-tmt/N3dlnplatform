@@ -1,5 +1,6 @@
 // Shared plumbing for /api/v1 route handlers: authentication, rate limiting
 // and uniform JSON errors.
+import type { SessionUser } from './auth';
 import { getDeps, type Deps } from './deps';
 
 /** Who is calling: a partner with an API key, or a visitor using this website. */
@@ -103,4 +104,16 @@ export function parseLngLat(value: string | null): [number, number] | null {
 
 export function isLngLat(lng: number, lat: number) {
   return Number.isFinite(lng) && Number.isFinite(lat) && Math.abs(lng) <= 180 && Math.abs(lat) <= 90;
+}
+
+/**
+ * The signed-in website user, or null. Partner API-key calls never have a
+ * user: accounts belong to people using this website.
+ */
+export async function sessionUser(req: Request, deps: Deps, caller: Caller): Promise<SessionUser | null> {
+  return caller.kind === 'web' ? deps.auth.getUser(req) : null;
+}
+
+export function signInRequired() {
+  return jsonError(401, 'SIGN_IN_REQUIRED', 'Sign in on this website to manage your places.');
 }

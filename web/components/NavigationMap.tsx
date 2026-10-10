@@ -19,6 +19,8 @@ import {
   type LightPreset,
 } from '@/lib/map';
 import ShareButtons from '@/components/ShareButtons';
+import { AUTH_ENABLED, useUser } from '@/lib/supabase/client';
+import type { User } from '@supabase/supabase-js';
 import { normalizePostcode, type Claim, type Gate, type NavigateResponse, type Verification } from '@/lib/postcode';
 
 // The map opens over all of Nigeria, then flies into Wuse 2, Abuja (the MVP pilot area).
@@ -31,7 +33,7 @@ type Status =
   | { kind: 'error'; message: string }
   | { kind: 'found'; result: NavigateResponse };
 
-export default function NavigationMap() {
+export default function NavigationMap({ initialCode }: { initialCode?: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapboxMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
@@ -47,6 +49,7 @@ export default function NavigationMap() {
   // Gate being marked for a claim: picking = the next map click places it.
   const [gate, setGate] = useState<Gate | null>(null);
   const [pickingGate, setPickingGate] = useState(false);
+  const user = useUser();
 
   // ---- Map initialisation ---------------------------------------------------
   useEffect(() => {
@@ -69,8 +72,10 @@ export default function NavigationMap() {
           setupScene(map);
           stopPulse.current = startPulse(map);
           map.on('click', (e) => mapClickRef.current(e.lngLat.lng, e.lngLat.lat));
-          // Intro: sweep from the whole country down into the pilot area.
-          if (prefersReducedMotion()) map.jumpTo(PILOT_VIEW);
+          // Intro: sweep from the whole country down into the pilot area,
+          // unless the page was opened on a specific building (?code=…).
+          if (initialCode) map.jumpTo(PILOT_VIEW);
+          else if (prefersReducedMotion()) map.jumpTo(PILOT_VIEW);
           else map.flyTo({ ...PILOT_VIEW, duration: 7000, curve: 1.6, essential: true });
           resolve(map);
         });
@@ -87,6 +92,15 @@ export default function NavigationMap() {
       mapRef.current?.remove();
       mapRef.current = null;
     };
+  }, []);
+
+  // Open the building from the URL (?code=…) once.
+  useEffect(() => {
+    const code = initialCode && normalizePostcode(initialCode);
+    if (!code) return;
+    setQuery(initialCode!);
+    void resolveAndShow(`/api/v1/navigate/${encodeURIComponent(code)}`, 'fly');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ---- Search & pin-drop ----------------------------------------------------
@@ -215,7 +229,16 @@ export default function NavigationMap() {
         </div>
       )}
 
-      <div className="absolute left-4 right-4 top-4 sm:right-auto sm:w-[420px]">
+      {AUTH_ENABLED && user !== undefined && (
+        <Link
+          href={user ? '/account' : '/login?next=/'}
+          className="absolute right-4 top-4 z-10 rounded-xl border border-white/10 bg-slate-900/85 px-3 py-2.5 text-sm font-medium text-slate-100 shadow-2xl backdrop-blur hover:bg-slate-800"
+        >
+          {user ? 'My places' : 'Sign in'}
+        </Link>
+      )}
+
+      <div className="absolute left-4 right-28 top-4 sm:right-auto sm:w-[420px]">
         <form
           onSubmit={handleSubmit}
           className="flex gap-2 rounded-xl border border-white/10 bg-slate-900/85 p-2 shadow-2xl backdrop-blur"
@@ -262,6 +285,7 @@ export default function NavigationMap() {
             pickingGate={pickingGate}
             onPickGate={startPickingGate}
             onClearGate={clearGate}
+            user={user}
           />
         )}
       </div>
@@ -314,6 +338,8 @@ type GateControls = {
   pickingGate: boolean;
   onPickGate: () => void;
   onClearGate: () => void;
+  /** Signed-in user: undefined while loading, null when signed out. */
+  user: User | null | undefined;
 };
 
 function ResultCard({ result, ...gateControls }: { result: NavigateResponse } & GateControls) {
@@ -373,6 +399,7 @@ function ClaimPanel({
   pickingGate,
   onPickGate,
   onClearGate,
+  user,
 }: { code: string; formatted: string } & GateControls) {
   const [state, setState] = useState<ClaimState>({ kind: 'closed' });
   const [label, setLabel] = useState('');
@@ -399,6 +426,19 @@ function ClaimPanel({
     }
   }
 
+  // Claims belong to accounts, so owners can edit them and revoke links later.
+  if (state.kind === 'closed' && !user && AUTH_ENABLED) {
+    return (
+      <Link
+        href={`/login?next=${encodeURIComponent(`/?code=${code}`)}`}
+        aria-disabled={user === undefined}
+        className="mt-3 block w-full rounded-lg border border-[#39FF14]/40 px-3 py-2 text-center font-medium text-[#39FF14] transition hover:bg-[#39FF14]/10"
+      >
+        Sign in to claim {formatted}
+      </Link>
+    );
+  }
+
   if (state.kind === 'closed') {
     return (
       <button
@@ -412,7 +452,7 @@ function ClaimPanel({
   }
 
   if (state.kind === 'claimed') {
-    const shareUrl = `${window.location.origin}/h/${state.claim.id}`;
+    const shareUrl = `${window.location.origin}/h/${state.claim.share_id}`;
     return (
       <div className="mt-3 rounded-lg bg-emerald-500/10 p-3 ring-1 ring-emerald-400/30">
         <p className="font-medium text-emerald-300">Claimed as “{state.claim.label}”</p>
@@ -425,7 +465,12 @@ function ClaimPanel({
         <div className="mt-2">
           <ShareButtons url={shareUrl} text={`${state.claim.label}: ${formatted}`} />
         </div>
-        <p className="mt-2 text-xs text-slate-500">Unverified claim. Anyone with the link can see these details.</p>
+        <p className="mt-2 text-xs text-slate-500">
+          Unverified claim. Anyone with the link can see these details.{' '}
+          <Link href="/account" className="text-slate-300 underline hover:text-white">
+            Manage in My places
+          </Link>
+        </p>
       </div>
     );
   }
