@@ -96,6 +96,9 @@ export default function RiderView({ initialCode, claimId }: { initialCode?: stri
     let cancelled = false;
 
     mapReady.current = import('mapbox-gl').then(({ default: mapboxgl }) => {
+      // Unmounted while the library was loading (e.g. React's dev double-mount):
+      // don't create a map nobody will clean up.
+      if (cancelled) return new Promise<MapboxMap>(() => {});
       mapboxgl.accessToken = MAPBOX_TOKEN;
       map = new mapboxgl.Map({
         container: containerRef.current!,

@@ -12,8 +12,16 @@ const MAILPIT = 'http://127.0.0.1:54324';
 export async function signInWithPhone(page: Page) {
   await page.getByRole('radio', { name: 'Phone' }).click();
   await page.getByLabel('Phone number').fill(TEST_PHONE.typed);
-  await page.getByRole('button', { name: 'Text me a code' }).click();
-  await expect(page.getByText(`sent to ${TEST_PHONE.e164}`)).toBeVisible();
+  // Supabase allows one code per number every few seconds; back-to-back tests can hit that.
+  const sent = page.getByText(`sent to ${TEST_PHONE.e164}`);
+  const tooSoon = page.getByRole('alert').filter({ hasText: 'Too many attempts' });
+  for (let attempt = 1; ; attempt++) {
+    await page.getByRole('button', { name: 'Text me a code' }).click();
+    await expect(sent.or(tooSoon)).toBeVisible();
+    if (await sent.isVisible()) break;
+    if (attempt === 3) throw new Error('Still rate-limited requesting a sign-in code.');
+    await page.waitForTimeout(6_000);
+  }
   await page.getByLabel('Code').fill(TEST_PHONE.code);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 }

@@ -197,6 +197,12 @@ function PlaceCard({ claim, onChange, onDelete }: { claim: Claim; onChange: (c: 
           <button type="button" onClick={() => setEditing(true)} disabled={busy} className="rounded-md border border-white/15 px-2.5 py-1.5 text-slate-200 hover:bg-white/5">
             Edit
           </button>
+          <Link
+            href={`/?code=${claim.code}&gate=${claim.id}`}
+            className="rounded-md border border-amber-400/30 px-2.5 py-1.5 text-amber-300 hover:bg-amber-400/10"
+          >
+            {claim.gate ? 'Change gate' : 'Mark gate'}
+          </Link>
           {claim.gate && (
             <button type="button" onClick={removeGate} disabled={busy} className="rounded-md border border-white/15 px-2.5 py-1.5 text-slate-200 hover:bg-white/5">
               Remove gate

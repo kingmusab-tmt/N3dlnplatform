@@ -16,7 +16,7 @@ Owner: **you** = needs your accounts or a decision · **dev** = code work.
 - [ ] **Turn on accounts in production:** add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` in Vercel; in Supabase, put the code (`{{ .Token }}`) in the Magic Link and Confirm signup email templates and set the Site URL. Until then, claims stay anonymous. *(you)*
 - [ ] **SMS for phone sign-in:** an SMS provider account (Twilio, Vonage or MessageBird are built in; Termii needs Supabase's Send SMS hook), configured in Supabase → Authentication → Providers → Phone. *(you, then dev to verify)*
 - [ ] **Custom email sender** (e.g. Resend) in Supabase → Authentication → SMTP. The built-in sender only allows a few emails an hour. *(you)*
-- [ ] **Re-mark a gate from My places.** You can remove a gate there, but setting a new one still means re-claiming. *(dev)*
+- [x] **Mark or change a gate from My places**: opens the map in gate mode, with Save gate. *(done)*
 - [ ] **Lite map mode** for budget phones and limited data: flat map, no terrain or 3D trees, fewer tiles. *(dev)*
 - [ ] **More coverage:** import the next pilot area (e.g. Ikeja) with `npm run import:osm -- --bbox … --state LA --lga …`. *(dev; you pick the area)*
 - [ ] **Partner self-service:** request an API key, see usage, and count requests per key for billing. *(dev)*
@@ -25,6 +25,7 @@ Owner: **you** = needs your accounts or a decision · **dev** = code work.
 
 - [x] **CI:** type check, unit tests and build on every push (GitHub Actions). *(done)*
 - [x] **Browser end-to-end tests:** Playwright for search, sign-in, claim, share, Directions, My places and live navigation, run in CI. *(done)*
+- [ ] **Unlock GitHub Actions:** GitHub refuses to start CI jobs because "your account is locked due to a billing issue". Fix it in GitHub → Settings → Billing and plans. *(you)*
 - [ ] **Add the `MAPBOX_TOKEN` GitHub secret,** so CI renders maps and runs the routing tests. *(you)*
 - [ ] **Error tracking and uptime alerts** (e.g. Sentry and an uptime monitor). *(dev, plus an account from you)*
 - [ ] **Add a favicon.** The browser currently gets a 404 for `/favicon.ico`. *(dev)*

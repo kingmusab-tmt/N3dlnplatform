@@ -2,6 +2,7 @@
 
 import type { Map as MapboxMap, Marker } from 'mapbox-gl';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import {
   LIGHT_PRESETS,
@@ -33,7 +34,10 @@ type Status =
   | { kind: 'error'; message: string }
   | { kind: 'found'; result: NavigateResponse };
 
-export default function NavigationMap({ initialCode }: { initialCode?: string }) {
+/**
+ * @param editGateFor A claim id (from My places): open its building to mark or move its gate.
+ */
+export default function NavigationMap({ initialCode, editGateFor }: { initialCode?: string; editGateFor?: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapboxMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
@@ -50,6 +54,12 @@ export default function NavigationMap({ initialCode }: { initialCode?: string })
   const [gate, setGate] = useState<Gate | null>(null);
   const [pickingGate, setPickingGate] = useState(false);
   const user = useUser();
+  const router = useRouter();
+  // Gate editing for one of the user's claims (?gate=<claim id>).
+  const [gateEdit, setGateEdit] = useState<
+    { claim: Claim; saving: boolean; error: string | null } | { failed: string } | null
+  >(null);
+  const gateEditStarted = useRef(false);
 
   // ---- Map initialisation ---------------------------------------------------
   useEffect(() => {
@@ -57,6 +67,9 @@ export default function NavigationMap({ initialCode }: { initialCode?: string })
     let cancelled = false;
 
     mapReady.current = import('mapbox-gl').then(({ default: mapboxgl }) => {
+      // Unmounted while the library was loading (e.g. React's dev double-mount):
+      // don't create a map nobody will clean up.
+      if (cancelled) return new Promise<MapboxMap>(() => {});
       mapboxgl.accessToken = MAPBOX_TOKEN;
       const map = new mapboxgl.Map({
         container: containerRef.current!,
@@ -102,6 +115,43 @@ export default function NavigationMap({ initialCode }: { initialCode?: string })
     void resolveAndShow(`/api/v1/navigate/${encodeURIComponent(code)}`, 'fly');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Once the building is on screen and we know who's signed in, start gate editing.
+  useEffect(() => {
+    if (!editGateFor || gateEditStarted.current || user === undefined || status.kind !== 'found') return;
+    gateEditStarted.current = true;
+    if (!user) {
+      router.replace(`/login?next=${encodeURIComponent(`/?code=${initialCode}&gate=${editGateFor}`)}`);
+      return;
+    }
+    void (async () => {
+      const res = await fetch('/api/v1/me/claims');
+      const body = await res.json().catch(() => null);
+      const claim: Claim | undefined = body?.claims?.find((c: Claim) => c.id === editGateFor);
+      if (!claim) return setGateEdit({ failed: "That place isn't in your account." });
+      setGateEdit({ claim, saving: false, error: null });
+      stopOrbit.current();
+      if (claim.gate) await placeGate(claim.gate.lng, claim.gate.lat);
+      else await startPickingGate();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, status.kind]);
+
+  async function saveGate() {
+    if (!gateEdit || !('claim' in gateEdit) || !gate) return;
+    setGateEdit({ ...gateEdit, saving: true, error: null });
+    const res = await fetch(`/api/v1/me/claims/${gateEdit.claim.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gate }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      setGateEdit({ ...gateEdit, saving: false, error: body?.message ?? `Couldn't save the gate (HTTP ${res.status}).` });
+      return;
+    }
+    router.push('/account');
+  }
 
   // ---- Search & pin-drop ----------------------------------------------------
   async function handleSubmit(e: FormEvent) {
@@ -277,7 +327,58 @@ export default function NavigationMap({ initialCode }: { initialCode?: string })
           </p>
         )}
 
-        {status.kind === 'found' && (
+        {gateEdit && (
+          <div className="mt-2 rounded-xl border border-amber-400/30 bg-slate-900/90 p-4 text-sm shadow-2xl backdrop-blur">
+            {'failed' in gateEdit ? (
+              <p role="alert" className="text-red-300">
+                {gateEdit.failed}{' '}
+                <Link href="/account" className="underline">
+                  Back to My places
+                </Link>
+              </p>
+            ) : (
+              <>
+                <p className="text-xs uppercase tracking-wider text-amber-300">Gate for “{gateEdit.claim.label}”</p>
+                <p className="mt-1 text-slate-200">
+                  {pickingGate
+                    ? 'Tap the map where riders should enter.'
+                    : gate
+                      ? 'Drag the G marker to adjust, then save.'
+                      : 'No gate marked yet.'}
+                </p>
+                {gateEdit.error && (
+                  <p role="alert" className="mt-2 text-red-300">
+                    {gateEdit.error}
+                  </p>
+                )}
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={saveGate}
+                    disabled={!gate || gateEdit.saving}
+                    className="flex-1 rounded-lg bg-[#39FF14] px-3 py-2 font-semibold text-slate-950 hover:brightness-110 disabled:opacity-50"
+                  >
+                    {gateEdit.saving ? 'Saving…' : 'Save gate'}
+                  </button>
+                  {!pickingGate && (
+                    <button
+                      type="button"
+                      onClick={startPickingGate}
+                      className="rounded-lg border border-white/15 px-3 py-2 text-slate-200 hover:bg-white/5"
+                    >
+                      {gate ? 'Re-place' : 'Mark gate'}
+                    </button>
+                  )}
+                  <Link href="/account" className="rounded-lg px-3 py-2 text-slate-400 hover:text-slate-200">
+                    Cancel
+                  </Link>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {status.kind === 'found' && !gateEdit && (
           <ResultCard
             key={status.result.code}
             result={status.result}
