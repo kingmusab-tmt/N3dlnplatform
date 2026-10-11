@@ -136,6 +136,8 @@ npm run admin -- remove you@example.com
 Further admins can be added from **Admins** in the dashboard. Sections:
 
 - **Overview:** visitors (new and returning), visits, **average and median visit duration**, total time on site, page views, bounce rate, people on the site now, visitors per day or hour, how long visits last, top pages, landing pages, referrers, devices, countries, recent visits, and platform totals.
+  - **Reports:** download CSVs for the chosen period. The visitor report has the summary, visitors per day, durations, pages, sources, devices and countries; raw visits has one row per visit with its duration and pages (`GET /api/v1/admin/analytics/export?range=…&kind=report|visits`). Cells starting with `= + - @` are neutralised so they can't run as spreadsheet formulas.
+  - **Clean-up:** delete visit data older than 30 days, 90 days, 6 months or 1 year, or all of it (`DELETE /api/v1/admin/analytics?older_than_days=…`). Accounts, places and deliveries aren't affected.
 - **Users:** accounts with their join date, last sign-in and number of places.
 - **Places:** claimed places with their notes and owner, with **Remove** for moderation (the share link stops working).
 - **Deliveries:** runs with who created them, stops delivered, and when the rider was last seen.

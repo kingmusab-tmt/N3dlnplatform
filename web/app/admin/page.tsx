@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import BarChart from '@/components/admin/BarChart';
+import VisitData from '@/components/admin/VisitData';
 import { Card, PageTitle, RankedList, Stat, Table } from '@/components/admin/ui';
 import { formatAgo, formatCount, formatDuration, formatPercent } from '@/lib/admin/format';
 import { requireAdminPage } from '@/lib/server/admin';
@@ -11,6 +12,7 @@ import {
   recentVisits,
   visitorBreakdowns,
   visitorSummary,
+  visitDataStats,
   visitorTrend,
 } from '@/lib/server/adminData';
 import { getDeps } from '@/lib/server/deps';
@@ -19,13 +21,14 @@ export default async function AdminOverview({ searchParams }: { searchParams: Pr
   await requireAdminPage();
   const range = parseRange((await searchParams).range);
   const db = getDeps().db;
-  const [summary, trend, durations, breakdowns, recent, totals] = await Promise.all([
+  const [summary, trend, durations, breakdowns, recent, totals, dataStats] = await Promise.all([
     visitorSummary(db, range),
     visitorTrend(db, range),
     durationBreakdown(db, range),
     visitorBreakdowns(db, range),
     recentVisits(db),
     platformTotals(db, range),
+    visitDataStats(db),
   ]);
 
   const trendData = trend.points.map((p) => {
@@ -123,6 +126,8 @@ export default async function AdminOverview({ searchParams }: { searchParams: Pr
           <Stat label="Active API keys" value={formatCount(totals.apiKeys)} />
         </div>
       </div>
+
+      <VisitData range={range} rangeLabel={RANGES[range].label} stats={dataStats} />
 
       <Card title="Recent visits" subtitle="Newest first. Visitors are anonymous: no names, IP addresses or cookies.">
         <Table head={['Started', 'Duration', 'Pages', 'Landing page', 'From', 'Device', 'Country', '']} empty={recent.length === 0}>

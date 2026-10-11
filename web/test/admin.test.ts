@@ -116,3 +116,31 @@ describe('admin API', () => {
     expect((await call(removeAdmin, '/api/v1/admin/admins/nope', { method: 'DELETE', params: { userId: 'nope' } })).status).toBe(400);
   });
 });
+
+describe('visit data: CSV and clean-up', () => {
+  it('writes CSV that spreadsheets read safely', async () => {
+    const { csvCell, toCsv } = await import('@/lib/server/csv');
+    expect(csvCell('a,b')).toBe('"a,b"');
+    expect(csvCell('say "hi"')).toBe('"say ""hi"""');
+    expect(csvCell('=HYPERLINK("x")')).toBe(`"'=HYPERLINK(""x"")"`);
+    expect(csvCell(-5)).toBe('-5'); // numbers are left alone
+    expect(csvCell(null)).toBe('');
+    expect(toCsv([['a', 1]]).startsWith('\uFEFFa,1')).toBe(true);
+  });
+
+  it('only cleans up with an allowed age, and reports what was deleted', async () => {
+    const { DELETE: cleanUp } = await import('@/app/api/v1/admin/analytics/route');
+    const db = recordingDb([USER.id]);
+    const query = db.query.bind(db);
+    db.query = async (sql: string, params: unknown[] = []) =>
+      sql.includes('DELETE FROM analytics_sessions') ? (db.queries.push({ sql, params }), { rows: [{ visits: 3, pageviews: 7 }] }) : query(sql, params);
+    useDeps({ db, user: USER });
+    expect((await call(cleanUp, '/api/v1/admin/analytics?older_than_days=7', { method: 'DELETE' })).status).toBe(400);
+    const res = await call(cleanUp, '/api/v1/admin/analytics?older_than_days=90', { method: 'DELETE' });
+    expect(await res.json()).toEqual({ deleted_visits: 3, deleted_pageviews: 7 });
+    expect(db.queries.find((q) => q.sql.includes('DELETE FROM analytics_sessions'))?.params).toEqual([90]);
+
+    useDeps({ db: recordingDb(), user: USER }); // not an admin
+    expect((await call(cleanUp, '/api/v1/admin/analytics?older_than_days=0', { method: 'DELETE' })).status).toBe(404);
+  });
+});

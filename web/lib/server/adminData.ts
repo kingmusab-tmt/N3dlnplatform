@@ -335,3 +335,70 @@ export async function listAdmins(db: Db): Promise<AdminRow[]> {
   );
   return rows.map((r) => ({ ...r, created_at: new Date(r.created_at).toISOString() }));
 }
+
+// ---- Visit data: storage, export and clean-up --------------------------------
+
+export type VisitDataStats = { visits: number; pageviews: number; oldest: string | null };
+
+export async function visitDataStats(db: Db): Promise<VisitDataStats> {
+  const { rows } = await db.query(
+    `SELECT (SELECT count(*) FROM analytics_sessions) AS visits,
+            (SELECT count(*) FROM analytics_pageviews) AS pageviews,
+            (SELECT min(started_at) FROM analytics_sessions) AS oldest`,
+  );
+  const r = rows[0];
+  return { visits: num(r.visits), pageviews: num(r.pageviews), oldest: r.oldest ? new Date(r.oldest).toISOString() : null };
+}
+
+/** Clean-up choices offered to admins: delete visits older than N days (0 = everything). */
+export const CLEANUP_DAYS = [30, 90, 180, 365, 0] as const;
+
+/** Deletes visits (and their page views) that started more than `days` days ago; 0 deletes all. */
+export async function deleteVisitData(db: Db, days: number) {
+  const { rows } = await db.query(
+    `WITH gone AS (
+       DELETE FROM analytics_sessions
+       WHERE $1::int = 0 OR started_at < now() - make_interval(days => $1::int)
+       RETURNING pageviews
+     )
+     SELECT count(*) AS visits, coalesce(sum(pageviews), 0) AS pageviews FROM gone`,
+    [days],
+  );
+  return { visits: num(rows[0].visits), pageviews: num(rows[0].pageviews) };
+}
+
+export const EXPORT_MAX_ROWS = 100_000;
+
+export type VisitExportRow = {
+  started_at: string;
+  last_seen_at: string;
+  active_seconds: number;
+  pageviews: number;
+  entry_path: string;
+  pages: string | null;
+  referrer_host: string | null;
+  device: string;
+  country: string | null;
+  visitor_id: string;
+  returning: boolean;
+};
+
+/** Every visit in the range, oldest first, with the pages it went through. */
+export async function exportVisits(db: Db, range: RangeId): Promise<VisitExportRow[]> {
+  const { rows } = await db.query(
+    `SELECT s.started_at, s.last_seen_at, s.active_seconds, s.pageviews, s.entry_path, s.referrer_host, s.device, s.country, s.visitor_id,
+            (SELECT string_agg(p.path, ' > ' ORDER BY p.at) FROM analytics_pageviews p WHERE p.session_id = s.id) AS pages,
+            EXISTS (SELECT 1 FROM analytics_sessions o WHERE o.visitor_id = s.visitor_id AND o.started_at < s.started_at) AS returning
+     FROM analytics_sessions s
+     WHERE s.started_at >= now() - $1::interval
+     ORDER BY s.started_at LIMIT $2`,
+    [RANGES[range].interval, EXPORT_MAX_ROWS],
+  );
+  return rows.map((r) => ({
+    ...r,
+    started_at: new Date(r.started_at).toISOString(),
+    last_seen_at: new Date(r.last_seen_at).toISOString(),
+    active_seconds: num(r.active_seconds),
+    pageviews: num(r.pageviews),
+  }));
+}

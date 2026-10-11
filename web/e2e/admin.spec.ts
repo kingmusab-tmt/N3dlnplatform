@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import pg from 'pg';
 import { emailedCode } from './helpers';
 
@@ -73,6 +74,29 @@ test('visits are counted with their duration, and an admin sees them on the dash
   await expect(page.getByRole('row', { name: new RegExp(email) }).getByText('Admin', { exact: true })).toBeVisible();
   const adminViews = await sql(`SELECT count(*)::int AS n FROM analytics_pageviews WHERE path LIKE '/admin%'`);
   expect(adminViews.rows[0].n).toBe(0);
+
+  // Reports: the summary report and the raw visits download as CSV.
+  await page.goto('/admin?range=24h');
+  const [report] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: '↓ Visitor report' }).click()]);
+  expect(report.suggestedFilename()).toMatch(/^visitor-report-24h-.*\.csv$/);
+  const reportText = readFileSync((await report.path())!, 'utf8');
+  expect(reportText).toContain('TMTechEasy Gate visitor report');
+  expect(reportText).toMatch(/Average visit \(seconds\),\d+/);
+  const [raw] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: '↓ Raw visits' }).click()]);
+  expect(readFileSync((await raw.path())!, 'utf8')).toContain('Duration (seconds)');
+
+  // Manual clean-up: a year-old visit is deleted, recent ones stay.
+  const old = await sql(
+    `INSERT INTO analytics_sessions (id, visitor_id, started_at, last_seen_at, entry_path, device)
+     VALUES (gen_random_uuid(), gen_random_uuid(), now() - interval '400 days', now() - interval '400 days', '/old', 'desktop') RETURNING id`,
+  );
+  await page.reload();
+  await page.getByLabel('Visit data to delete').selectOption({ label: 'Older than 1 year' });
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(page.getByText(/^Deleted 1 visit \(/)).toBeVisible();
+  expect((await sql('SELECT 1 FROM analytics_sessions WHERE id = $1', [old.rows[0].id])).rowCount).toBe(0);
+  expect((await sql(`SELECT count(*)::int AS n FROM analytics_sessions WHERE started_at > now() - interval '1 day'`)).rows[0].n).toBeGreaterThan(0);
 
   await sql(`DELETE FROM admin_users WHERE user_id = (SELECT id FROM auth.users WHERE email = $1)`, [email]);
 });
