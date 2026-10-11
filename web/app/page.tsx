@@ -518,6 +518,7 @@ export default async function LandingPage() {
             <Link href="/account" className="hover:text-slate-300">My places</Link>
             <Link href="/login" className="hover:text-slate-300">Sign in</Link>
             <Link href="/api/v1/docs" className="hover:text-slate-300">API docs</Link>
+            <Link href="/privacy" className="hover:text-slate-300">Privacy notice</Link>
             <a href="https://docs.postcode.gov.ng" className="hover:text-slate-300" rel="noopener noreferrer" target="_blank">
               NIPOST postcode docs
             </a>

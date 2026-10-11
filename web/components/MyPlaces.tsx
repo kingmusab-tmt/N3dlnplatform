@@ -81,7 +81,88 @@ export default function MyPlaces() {
           ))}
         </ul>
       )}
+
+      <DeleteAccount
+        onDeleted={async () => {
+          signingOut.current = true;
+          await getSupabase()?.auth.signOut();
+          router.replace('/?account=deleted');
+          router.refresh();
+        }}
+      />
+      <p className="mt-6 text-xs text-slate-500">
+        How we use your data:{' '}
+        <Link href="/privacy" className="underline hover:text-slate-300">
+          Privacy notice
+        </Link>
+      </p>
     </div>
+  );
+}
+
+/** Permanently deletes the account and its places, after typing DELETE to confirm. */
+function DeleteAccount({ onDeleted }: { onDeleted: () => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api('/api/v1/me', { method: 'DELETE' });
+      await onDeleted();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not delete the account.');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="mt-10 rounded-xl border border-red-400/20 bg-red-950/20 p-4">
+      <h2 className="font-semibold text-red-200">Delete my account</h2>
+      <p className="mt-1 text-sm text-slate-300">
+        Removes your account and all your places for good; their share links stop working. This can’t be undone.
+      </p>
+      {!open ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="mt-3 rounded-lg border border-red-400/40 px-3 py-1.5 text-sm text-red-300 hover:bg-red-400/10"
+        >
+          Delete my account…
+        </button>
+      ) : (
+        <form onSubmit={submit} className="mt-3 flex flex-wrap items-end gap-2">
+          <label className="flex flex-col text-xs text-slate-400">
+            Type DELETE to confirm
+            <input
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              autoComplete="off"
+              className="mt-1 w-40 rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-red-400"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={typed !== 'DELETE' || busy}
+            className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-50"
+          >
+            {busy ? 'Deleting…' : 'Delete account'}
+          </button>
+          <button type="button" onClick={() => setOpen(false)} className="px-2 py-1.5 text-sm text-slate-400 hover:text-slate-200">
+            Cancel
+          </button>
+        </form>
+      )}
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-red-300">
+          {error}
+        </p>
+      )}
+    </section>
   );
 }
 

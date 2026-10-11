@@ -106,7 +106,10 @@ If NIPOST is down, mapped buildings are still returned, marked `unavailable`.
 
 - **Accounts.** Sign in with a 6-digit code by email or SMS (Supabase Auth, `/login`). On the website, claiming a building requires signing in, and **My places** (`/account`) lets owners edit claims, remove gates, **revoke and replace** share links (`share_id` is separate from the claim id), and delete. The `/api/v1/me/*` endpoints use the session cookie, not API keys, and only ever touch the caller's own claims. Partner API-key claims have no owner. If `NEXT_PUBLIC_SUPABASE_URL` isn't set, accounts are off and website claims are anonymous.
   - **Local:** email codes arrive in Mailpit (http://127.0.0.1:54324). Phone `0800 000 0001` signs in with code `123456`, set in `supabase/config.toml`, and no SMS is sent.
-  - **Production:** set the two public env vars in Vercel, add `{{ .Token }}` to the Supabase email templates, and configure an SMS provider for phone sign-in. See TODO.md.
+  - **Production:** email codes only. Auth settings come from `supabase/config.toml` (`[remotes.production]`). Phone sign-in shows only with `NEXT_PUBLIC_AUTH_PHONE=true` and an SMS provider.
+  - **CAPTCHA:** Cloudflare Turnstile, verified by Supabase Auth on every code request (`components/Turnstile.tsx`). It's shown when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is set. Locally it's on with Cloudflare's always-pass test keys (site key in `.env.local`, secret in `config.toml`). For production, set the site key in Vercel and redeploy before enabling it in Supabase; see TODO.md.
+  - **Deleting an account:** My places → *Delete my account* (`DELETE /api/v1/me`). It removes the account and its places (claims cascade); delivery runs keep their history without the link. The last admin can't delete their account.
+  - **Privacy notice:** `/privacy` covers what's collected and why, cookies and storage, location, processors, transfers, retention and rights under the NDPA. Set `PRIVACY_CONTACT_EMAIL` to publish a contact address.
 
 - **3D city.** Every platform building is drawn in 3D from `GET /api/v1/tiles/buildings/{z}/{x}/{y}.mvt`, vector tiles built by PostGIS (`ST_AsMVT`). It sits on Mapbox's Standard style, with lighting, shadows, terrain and 3D trees, and has a Day/Dusk/Night switch. Heights come from OSM where known, and are otherwise estimated at 1–4 storeys from the footprint area (`renderHeightSql`), so lookups and tiles always agree. Mapbox's own 3D buildings are hidden, because in Nigeria they're mostly flat stubs. The map opens with a flight from all of Nigeria into Wuse 2, orbits each found building until you touch the map, and pulses its highlight. All three animations respect `prefers-reduced-motion`.
 
@@ -163,10 +166,4 @@ npm test            # unit + API tests (Vitest), no services needed
 npm run test:e2e    # browser tests (Playwright); needs `supabase start`
 ```
 
-The browser tests cover search, phone and email sign-in, claiming, share links and Directions, My places (edit, new link, delete), and live delivery navigation with a simulated GPS. They load their own buildings in code district `E2E` (`web/e2e/fixtures.sql`), refuse to run against a non-local database, and reuse a running `npm run dev`.
-
-**CI** (`.github/workflows/ci.yml`) runs on every push and pull request:
-- **Fast checks:** type check, unit tests and a production build.
-- **Browser tests:** against a fresh local Supabase in Docker.
-
-Add a `MAPBOX_TOKEN` repository secret (Settings → Secrets and variables → Actions) so CI also renders the map and runs the routing tests; without it those tests are skipped.
+The browser tests cover search, sign-in, claiming, share links and Directions, My places, live navigation with a simulated GPS, dispatch, offline use, emergency modes, the phone map and the admin dashboard. There's no hosted CI: run them locally before deploying. They load their own buildings in code district `E2E` (`web/e2e/fixtures.sql`), refuse to run against a non-local database, and reuse a running `npm run dev`.

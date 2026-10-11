@@ -477,6 +477,27 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /api/v1/me:
+    delete:
+      tags: [Account]
+      operationId: deleteMyAccount
+      summary: Delete my account
+      description: |
+        Permanently deletes the signed-in user's account and their places (whose share links
+        stop working). Delivery runs they started are kept without the link to the account.
+        The only remaining admin can't delete their account until another admin is added.
+      security:
+        - SessionCookie: []
+      responses:
+        '204': { description: Deleted. }
+        '401': { $ref: '#/components/responses/SignInRequired' }
+        '409':
+          description: '`LAST_ADMIN`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
   /api/v1/me/claims:
     get:
       tags: [Account]

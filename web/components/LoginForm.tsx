@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useState } from 'react';
 import { normalizePhone } from '@/lib/postcode';
+import Turnstile, { TURNSTILE_SITE_KEY } from '@/components/Turnstile';
 import { PHONE_AUTH_ENABLED, getSupabase } from '@/lib/supabase/client';
 
 type Method = 'email' | 'phone';
@@ -22,6 +23,10 @@ export default function LoginForm({ next }: { next: string }) {
   const [code, setCode] = useState('');
   const [step, setStep] = useState<Step>({ kind: 'enter' });
   const [error, setError] = useState<string | null>(null);
+  // CAPTCHA (when configured): a single-use token for each code request.
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaReset, setCaptchaReset] = useState(0);
+  const needsCaptcha = Boolean(TURNSTILE_SITE_KEY);
 
   if (!supabase) {
     return <p className="text-slate-300">Sign-in isn't configured on this server (NEXT_PUBLIC_SUPABASE_URL is missing).</p>;
@@ -41,10 +46,20 @@ export default function LoginForm({ next }: { next: string }) {
       setError(method === 'phone' ? 'Enter a valid phone number, e.g. 0803 123 4567.' : 'Enter a valid email address.');
       return;
     }
+    if (needsCaptcha && !captchaToken) {
+      setError('Please wait for the security check to finish.');
+      return;
+    }
     setStep({ kind: 'working' });
+    const captcha = captchaToken ?? undefined;
     const { error } = await supabase!.auth.signInWithOtp(
-      method === 'phone' ? { phone: destination } : { email: destination, options: { shouldCreateUser: true } },
+      method === 'phone'
+        ? { phone: destination, options: { captchaToken: captcha } }
+        : { email: destination, options: { shouldCreateUser: true, captchaToken: captcha } },
     );
+    // Tokens are single-use: get a fresh one for any further request.
+    setCaptchaToken(null);
+    if (needsCaptcha) setCaptchaReset((n) => n + 1);
     if (error) {
       setError(friendly(error.message));
       setStep({ kind: 'enter' });
@@ -120,13 +135,21 @@ export default function LoginForm({ next }: { next: string }) {
               {error}
             </p>
           )}
+          <Turnstile onToken={setCaptchaToken} onError={setError} resetKey={captchaReset} />
           <button
             type="submit"
-            disabled={working}
+            disabled={working || (needsCaptcha && !captchaToken)}
             className="w-full rounded-lg bg-[#39FF14] px-3 py-2 font-semibold text-slate-950 hover:brightness-110 disabled:opacity-60"
           >
             {working ? 'Sending…' : method === 'email' ? 'Email me a code' : 'Text me a code'}
           </button>
+          <p className="text-xs text-slate-500">
+            We use your {method === 'email' ? 'email address' : 'number'} only to sign you in. See our{' '}
+            <Link href="/privacy" className="underline hover:text-slate-300">
+              privacy notice
+            </Link>
+            .
+          </p>
         </form>
       ) : (
         <form onSubmit={verify} className="mt-5 space-y-3">
@@ -178,5 +201,6 @@ function friendly(message: string) {
   if (/expired|invalid/i.test(message)) return 'That code is wrong or has expired. Check it, or ask for a new one.';
   if (/rate limit|too many|security purposes/i.test(message)) return 'Too many attempts. Wait a minute, then try again.';
   if (/phone provider|sms/i.test(message)) return 'Text messages are not set up yet. Sign in with email instead.';
+  if (/captcha/i.test(message)) return 'The security check failed or expired. Wait for it to finish, then try again.';
   return message;
 }

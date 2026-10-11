@@ -6,19 +6,21 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
  * - Mapbox GL needs blob: workers and its API/tile hosts.
  * - Supabase Auth is called from the browser (sign-in codes).
  * - The API docs page loads Swagger UI from jsDelivr.
+ * - Sign-in shows a Cloudflare Turnstile CAPTCHA (script + iframe) when it's configured.
  * - 'unsafe-inline' scripts are needed for Next.js's inline bootstrap without
  *   per-request nonces (which would make every page dynamic); 'unsafe-eval'
  *   only in development, for React Fast Refresh.
  */
 const csp = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net${isDev ? " 'unsafe-eval'" : ''}`,
+  `script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://challenges.cloudflare.com${isDev ? " 'unsafe-eval'" : ''}`,
   "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
   "img-src 'self' data: blob: https://*.mapbox.com",
   "font-src 'self' data:",
   `connect-src 'self' https://*.mapbox.com${supabaseUrl ? ` ${supabaseUrl}` : ''}${isDev ? ' ws: http://127.0.0.1:54321' : ''}`,
   "worker-src 'self' blob:",
   "child-src blob:",
+  "frame-src https://challenges.cloudflare.com",
   "frame-ancestors 'none'",
   "object-src 'none'",
   "base-uri 'self'",

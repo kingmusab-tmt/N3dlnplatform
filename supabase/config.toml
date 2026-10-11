@@ -211,11 +211,13 @@ token_verifications = 30
 # Number of Web3 logins that can be made in a 5 minute interval per IP address.
 web3 = 30
 
-# Configure one of the supported captcha providers: `hcaptcha`, `turnstile`.
-# [auth.captcha]
-# enabled = true
-# provider = "hcaptcha"
-# secret = ""
+# CAPTCHA on sign-in (Cloudflare Turnstile). Locally this is Cloudflare's
+# public *test* secret, which always passes; the matching test site key goes
+# in web/.env.local as NEXT_PUBLIC_TURNSTILE_SITE_KEY=1x00000000000000000000AA.
+[auth.captcha]
+enabled = true
+provider = "turnstile"
+secret = "1x0000000000000000000000000000000AA"
 
 [auth.email]
 # Allow/disallow new user signups via email to your project.
@@ -451,6 +453,15 @@ max_frequency = "1m0s"
 
 [remotes.production.auth.sms.twilio]
 enabled = false
+
+[remotes.production.auth.captcha]
+# Off until real Turnstile keys exist. To turn on: put the site key in Vercel
+# (NEXT_PUBLIC_TURNSTILE_SITE_KEY) and redeploy FIRST, then enable here with
+# secret = "env(SUPABASE_AUTH_CAPTCHA_SECRET)" and push (or set it in the
+# dashboard: Authentication -> Attack Protection). The other order locks everyone out.
+enabled = false
+provider = "turnstile"
+secret = ""
 
 [remotes.production.auth.mfa.totp]
 enroll_enabled = true
