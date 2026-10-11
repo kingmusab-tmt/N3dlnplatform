@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useState } from 'react';
 import { normalizePhone } from '@/lib/postcode';
-import { getSupabase } from '@/lib/supabase/client';
+import { PHONE_AUTH_ENABLED, getSupabase } from '@/lib/supabase/client';
 
 type Method = 'email' | 'phone';
 type Step = { kind: 'enter' } | { kind: 'code'; destination: string } | { kind: 'working' };
@@ -82,6 +82,7 @@ export default function LoginForm({ next }: { next: string }) {
 
       {step.kind !== 'code' ? (
         <form onSubmit={sendCode} className="mt-5 space-y-3">
+          {PHONE_AUTH_ENABLED && (
           <div role="radiogroup" aria-label="Sign in with" className="grid grid-cols-2 gap-1 rounded-lg bg-slate-800 p-1 text-sm">
             {(['email', 'phone'] as const).map((m) => (
               <button
@@ -100,6 +101,7 @@ export default function LoginForm({ next }: { next: string }) {
               </button>
             ))}
           </div>
+          )}
           <label className="block">
             <span className="text-xs text-slate-400">{method === 'email' ? 'Email address' : 'Phone number'}</span>
             <input

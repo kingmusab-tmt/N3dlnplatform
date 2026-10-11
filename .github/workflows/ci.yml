@@ -44,6 +44,7 @@ jobs:
       CI: 'true'
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
       NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_AUTH_PHONE: 'true'
       SITE_URL: http://localhost:3000
       # Optional repository secret. Without it the map doesn't render and the
       # routing tests are skipped; everything else still runs.

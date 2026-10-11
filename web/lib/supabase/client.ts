@@ -11,6 +11,9 @@ const KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 /** Whether accounts (Supabase Auth) are available on this deployment. */
 export const AUTH_ENABLED = Boolean(URL && KEY);
 
+/** Phone (SMS code) sign-in: only where an SMS provider is set up in Supabase. */
+export const PHONE_AUTH_ENABLED = process.env.NEXT_PUBLIC_AUTH_PHONE === 'true';
+
 let client: SupabaseClient | null = null;
 
 /** The shared browser client, or null when Supabase Auth isn't configured. */
