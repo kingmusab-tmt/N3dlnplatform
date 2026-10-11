@@ -18,6 +18,7 @@ import {
   setupScene,
   startOrbit,
   startPulse,
+  tapHitsBuilding,
   type LightPreset,
 } from '@/lib/map';
 import EmergencyLinks from '@/components/EmergencyLinks';
@@ -58,6 +59,8 @@ export default function NavigationMap({ initialCode, editGateFor }: { initialCod
   // Gate being marked for a claim: picking = the next map click places it.
   const [gate, setGate] = useState<Gate | null>(null);
   const [pickingGate, setPickingGate] = useState(false);
+  // Bumped when the user moves the map on a phone: the result card collapses.
+  const [cardTucks, setCardTucks] = useState(0);
   const user = useUser();
   const router = useRouter();
   // Gate editing for one of the user's claims (?gate=<claim id>).
@@ -94,7 +97,15 @@ export default function NavigationMap({ initialCode, editGateFor }: { initialCod
           if (cancelled) return;
           setupScene(map, mode);
           stopPulse.current = startPulse(map);
-          map.on('click', (e) => mapClickRef.current(e.lngLat.lng, e.lngLat.lat));
+          map.on('click', (e) => mapClickRef.current(e.lngLat.lng, e.lngLat.lat, tapHitsBuilding(map, e.point)));
+          // On phones, moving the map tucks the result card away so the 3D view is visible.
+          // (originalEvent is only set for user gestures, not for camera animations.)
+          const tuckCard = (e: object) => {
+            if ((e as { originalEvent?: unknown }).originalEvent && window.innerWidth < 640) setCardTucks((n) => n + 1);
+          };
+          map.on('dragstart', tuckCard);
+          map.on('rotatestart', tuckCard);
+          map.on('pitchstart', tuckCard);
           // Intro: sweep from the whole country down into the pilot area, unless
           // the page was opened on a specific building (?code=…) or the map is lite.
           if (initialCode || mode === 'lite' || prefersReducedMotion()) map.jumpTo(pilotView);
@@ -174,8 +185,10 @@ export default function NavigationMap({ initialCode, editGateFor }: { initialCod
   }
 
   // Map click: place the gate while marking one, otherwise find the building under the pointer.
-  async function handleMapClick(lng: number, lat: number) {
+  // Taps on empty ground (often just a touch while panning) keep the current result.
+  async function handleMapClick(lng: number, lat: number, onBuilding: boolean) {
     if (pickingGate) return placeGate(lng, lat);
+    if (!onBuilding) return;
     const result = await resolveAndShow(`/api/v1/buildings/at?lng=${lng}&lat=${lat}`, 'stay');
     if (result) setQuery(result.formatted);
   }
@@ -222,8 +235,11 @@ export default function NavigationMap({ initialCode, editGateFor }: { initialCod
     // A click while already zoomed in just highlights; don't yank the camera.
     if (camera === 'stay' && map.getZoom() >= 16.5) return;
 
+    // On phones the result card covers the top of the screen: frame the building below it.
+    const phone = window.innerWidth < 640;
     map.flyTo({
       ...buildingCamera(result.center, mapModeOf(map)),
+      padding: phone ? { top: Math.round(window.innerHeight * 0.35), bottom: 0, left: 0, right: 0 } : undefined,
       speed: 0.9,
       curve: 1.5,
       essential: true, // still animate for users with prefers-reduced-motion
@@ -396,6 +412,7 @@ export default function NavigationMap({ initialCode, editGateFor }: { initialCod
             onPickGate={startPickingGate}
             onClearGate={clearGate}
             user={user}
+            tucks={cardTucks}
           />
         )}
       </div>
@@ -453,18 +470,48 @@ type GateControls = {
   user: User | null | undefined;
 };
 
-function ResultCard({ result, ...gateControls }: { result: NavigateResponse } & GateControls) {
+type ResultCardProps = {
+  result: NavigateResponse;
+  /** Changes when the user moves the map on a phone: collapse the details. */
+  tucks: number;
+} & GateControls;
+
+function ResultCard({ result, tucks, ...gateControls }: ResultCardProps) {
   const props: Record<string, unknown> = result.building?.properties ?? {};
+  // Collapsible so phone users can see the 3D view; hidden (not unmounted) so a
+  // half-filled claim form survives.
+  const [open, setOpen] = useState(true);
+  const seenTucks = useRef(tucks);
+  useEffect(() => {
+    if (tucks !== seenTucks.current) {
+      seenTucks.current = tucks;
+      setOpen(false);
+    }
+  }, [tucks]);
   const name = typeof props.name === 'string' ? props.name : null;
   const type = typeof props.building_type === 'string' ? props.building_type.replace('_', ' ') : null;
   const [lng, lat] = result.center;
 
   return (
-    <div className="mt-2 rounded-xl border border-white/10 bg-slate-900/85 p-4 text-sm shadow-2xl backdrop-blur">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="font-mono text-lg tracking-widest text-[#39FF14]">{result.formatted}</p>
-        {result.verification && <VerificationBadge verification={result.verification} />}
+    <div className="mt-2 max-h-[45dvh] overflow-y-auto rounded-xl border border-white/10 bg-slate-900/85 p-4 text-sm shadow-2xl backdrop-blur sm:max-h-[calc(100dvh-9rem)]">
+      <div className="flex items-center justify-between gap-2">
+        <p className="whitespace-nowrap font-mono text-base tracking-wider text-[#39FF14] sm:text-lg sm:tracking-widest">{result.formatted}</p>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          aria-controls="result-details"
+          className="shrink-0 rounded-lg border border-white/15 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-white/5"
+        >
+          {open ? 'Hide ▴' : 'Details ▾'}
+        </button>
       </div>
+      <div id="result-details" hidden={!open}>
+      {result.verification && (
+        <div className="mt-1">
+          <VerificationBadge verification={result.verification} />
+        </div>
+      )}
       {name && <p className="mt-1 font-medium">{name}</p>}
       {!result.building && (
         <p className="mt-1 text-amber-300">Location from NIPOST; no building footprint mapped here yet.</p>
@@ -493,6 +540,7 @@ function ResultCard({ result, ...gateControls }: { result: NavigateResponse } & 
         </div>
       )}
       {result.building && <ClaimPanel code={result.code} formatted={result.formatted} {...gateControls} />}
+      </div>
     </div>
   );
 }

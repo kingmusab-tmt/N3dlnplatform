@@ -74,6 +74,20 @@ export function buildingCamera(center: [number, number], mode: MapMode = 'full')
   return mode === 'lite' ? { center, zoom: 18, pitch: 0, bearing: 0 } : { center, zoom: 18.2, pitch: 62, bearing: -20 };
 }
 
+/**
+ * Whether a tap at this screen point lands on a mapped building, allowing a
+ * finger's width of slack. Taps on empty ground shouldn't trigger a lookup.
+ */
+export function tapHitsBuilding(map: MapboxMap, point: { x: number; y: number }, slop = 8) {
+  const layers = [BUILDINGS_LAYER, 'target-building-extrusion'].filter((id) => map.getLayer(id));
+  if (layers.length === 0) return false;
+  const box: [[number, number], [number, number]] = [
+    [point.x - slop, point.y - slop],
+    [point.x + slop, point.y + slop],
+  ];
+  return map.queryRenderedFeatures(box, { layers }).length > 0;
+}
+
 /** Camera tilt to use while following a rider. */
 export const followPitch = (map: MapboxMap) => (mapModeOf(map) === 'lite' ? 0 : 60);
 

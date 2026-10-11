@@ -14,7 +14,7 @@ Owner: **you** = needs your accounts or a decision · **dev** = code work.
 - [x] **"Start delivery" live navigation:** follow the rider's real GPS, show the next turn and distance left, re-route when off course, detect arrival at the gate, and keep the screen awake. *(done; needs a real-world ride in the field test)*
 - [x] **User accounts** (Supabase Auth, email or SMS code): My places, with edit, delete and revoke-and-replace share links. *(done in code; production needs the setup items below)*
 - [x] **Production auth settings** (site URL, redirect URLs, 6-digit code emails) pushed to Supabase from `supabase/config.toml` (`[remotes.production]`). *(done)*
-- [ ] **Fix the Supabase key in Vercel:** `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` holds the *local* key (`sb_publishable_ACJ…`), so the live site's sign-in fails with "Invalid API key". Set it to the hosted project's publishable key (`sb_publishable_kQi…`, Supabase → Project Settings → API Keys), then redeploy. *(you)*
+- [x] **Supabase key in Vercel and email sender:** the hosted publishable key is set, and a custom SMTP sender is configured, so anyone can sign in by email. *(done)*
 - [ ] **SMS for phone sign-in:** an SMS provider account (Twilio, Vonage or MessageBird are built in; Termii needs Supabase's Send SMS hook), configured in Supabase → Authentication → Providers → Phone. *(you, then dev to verify)*
 - [ ] **Custom email sender** (e.g. Resend) in Supabase → Authentication → SMTP. The built-in sender only allows a few emails an hour. *(you)*
 - [x] **Mark or change a gate from My places**: opens the map in gate mode, with Save gate. *(done)*
