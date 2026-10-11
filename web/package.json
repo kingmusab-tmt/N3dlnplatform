@@ -9,6 +9,7 @@
     "test": "vitest run",
     "import:osm": "tsx --env-file=.env.local scripts/import-osm.ts",
     "keys": "tsx --env-file=.env.local scripts/keys.ts",
+    "admin": "tsx --env-file=.env.local scripts/admin.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {

@@ -24,6 +24,9 @@ Owner: **you** = needs your accounts or a decision · **dev** = code work.
 - [ ] **Talk to emergency services** (FCT Fire Service, NEMA/SEMA, hospital ambulance units, Police) about piloting the emergency navigator, and whether call-takers want an API integration. *(you)*
 - [ ] **Local languages** (Hausa, Yoruba, Igbo, Pidgin) using NCAIR's N-ATLaS model. *(dev, next)*
 - [x] **Offline-friendly Rider View:** installable app (PWA); the Rider View, its run and visited building tiles work without signal; navigation falls back to straight-line guidance; delivery proofs and position updates are saved on the phone and sent when back online. *(done; check on a real phone in the field test)*
+- [x] **Admin dashboard** (`/admin`): visitor analytics (visitors, visits, visit duration, pages, sources, devices, countries, live now), users, places moderation, delivery runs, API key management and admins. *(done)*
+- [x] **Admin in production:** migration applied and musab.buraimoh@gmail.com added as the first admin. *(done)*
+- [ ] **Analytics retention:** decide how long to keep raw visit data (e.g. 13 months) and add a cleanup job. *(you decide, then dev)*
 - [ ] **More coverage:** import the next pilot area (e.g. Ikeja) with `npm run import:osm -- --bbox … --state LA --lga …`. *(dev; you pick the area)*
 - [ ] **Partner self-service:** request an API key, see usage, and count requests per key for billing. *(dev)*
 

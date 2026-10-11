@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import Analytics from '@/components/Analytics';
 import ServiceWorker from '@/components/ServiceWorker';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import './globals.css';
@@ -18,6 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="antialiased text-slate-100">
         {children}
         <ServiceWorker />
+        <Analytics />
       </body>
     </html>
   );

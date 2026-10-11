@@ -122,6 +122,33 @@ If NIPOST is down, mapped buildings are still returned, marked `unavailable`.
   - **Start delivery:** live turn-by-turn navigation from the device's GPS. A next-turn banner and the distance and time left update as the rider moves, and the camera follows unless they pan, when a **Re-center** button appears. The rider is re-routed after 3 consecutive off-route positions (more than 40 m, or 1.5x the GPS accuracy, from the route; at most every 15 s). Arrival is detected within 20 m of the gate or building, and the screen is kept awake (Wake Lock). Only a denied location permission stops navigation; timeouts and weak signal just show a warning. The progress logic is in `lib/navigation.ts`, with tests.
   - **Simulate ride:** animates the same route, for demos away from Abuja. The rider starts at a simulated point about 1.5 km away, and you can tap the map to move it. Mapbox has no motorbike profile, so `driving` stands in for dispatch bikes.
 
+## Admin
+
+`/admin` is for the platform team: signed-in accounts listed in `admin_users`. Everyone else gets "not found". Every admin page checks this itself (not just the layout), and the admin API (`/api/v1/admin/*`) accepts only same-origin requests with an admin's session cookie, never partner API keys.
+
+```bash
+cd web
+npm run admin -- add you@example.com     # or a phone number; the account must have signed in once
+npm run admin -- list
+npm run admin -- remove you@example.com
+```
+
+Further admins can be added from **Admins** in the dashboard. Sections:
+
+- **Overview:** visitors (new and returning), visits, **average and median visit duration**, total time on site, page views, bounce rate, people on the site now, visitors per day or hour, how long visits last, top pages, landing pages, referrers, devices, countries, recent visits, and platform totals.
+- **Users:** accounts with their join date, last sign-in and number of places.
+- **Places:** claimed places with their notes and owner, with **Remove** for moderation (the share link stops working).
+- **Deliveries:** runs with who created them, stops delivered, and when the rider was last seen.
+- **API keys:** create partner keys (shown once) and revoke them, with last use and run counts.
+- **Admins:** add or remove admins (the last admin can't be removed).
+
+**Visitor analytics** are first-party (`components/Analytics.tsx` → `POST /api/v1/analytics` → `analytics_sessions`, `analytics_pageviews`).
+- **Identity:** the browser keeps a random visitor id and a visit id in localStorage. A visit ends after 30 idle minutes.
+- **Duration:** active time comes from 15-second heartbeats while the page is visible, capped server-side by wall-clock time.
+- **Privacy:** no cookies and no IP addresses are stored. Paths are stored without query strings, and private tokens are masked (`/t/[token]`, `/h/[id]`).
+- **Exclusions:** bots, `/admin` and browsers sending Do Not Track or Global Privacy Control are not counted. Country comes from Vercel's `x-vercel-ip-country` header.
+- **Offline:** the service worker never caches admin pages.
+
 ## Postcode format
 
 Codes are stored in canonical form: 11 uppercase characters with no separators. The segments are State (2 letters), LGA (2 digits, 01–99), District (3 alphanumerics), Area (2 letters) and Building unit (2 digits, 01–99), following [NIPOST's spec](https://docs.postcode.gov.ng/concepts/postcode-format). The pattern lives in [web/lib/postcode.ts](web/lib/postcode.ts), shared by the browser and the API, and in a DB `CHECK` constraint.

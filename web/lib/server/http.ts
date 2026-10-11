@@ -81,7 +81,7 @@ function withRateHeaders(res: Response, limit: number, remaining: number) {
   return res;
 }
 
-function isSameOrigin(req: Request) {
+export function isSameOrigin(req: Request) {
   const self = new URL(req.url).origin;
   const site = req.headers.get('sec-fetch-site');
   if (site) return site === 'same-origin';

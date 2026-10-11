@@ -18,6 +18,8 @@ const CLAIM_ID = '3f2b8c1e-9a4d-4e7b-8c2a-1d5e6f7a8b9c';
 const API_DIR = path.resolve(__dirname, '../app/api/v1');
 // Served for humans/tools, not part of the documented API surface.
 const UNDOCUMENTED = new Set(['/api/v1/docs', '/api/v1/openapi.yaml', '/api/v1/{...rest}']);
+// The website's own internals (admin area, visitor analytics), not the partner API.
+const INTERNAL = /^\/api\/v1\/(admin|analytics)(\/|$)/;
 
 /** app/api/v1/navigate/[code]/route/route.ts -> /api/v1/navigate/{code}/route */
 function routeFiles(dir = API_DIR): { apiPath: string; file: string }[] {
@@ -113,7 +115,7 @@ describe('OpenAPI spec', () => {
 
   it('documents every API route file', () => {
     const documented = new Set(Object.keys(spec.paths));
-    const missing = routeFiles().map((r) => r.apiPath).filter((p) => !UNDOCUMENTED.has(p) && !documented.has(p));
+    const missing = routeFiles().map((r) => r.apiPath).filter((p) => !UNDOCUMENTED.has(p) && !INTERNAL.test(p) && !documented.has(p));
     expect(missing).toEqual([]);
   });
 

@@ -1,7 +1,7 @@
 // TMTechEasy Gate service worker: keeps the Rider View usable with a weak
 // or no connection. Mapbox's own map data is not cached here (its terms limit
 // that); the browser's normal HTTP cache still applies to it.
-const VERSION = 'v2';
+const VERSION = 'v3';
 const SHELL = `shell-${VERSION}`; // pages saved at install
 const STATIC = `static-${VERSION}`; // Next.js build assets (immutable)
 const PAGES = `pages-${VERSION}`; // pages visited while online
@@ -35,6 +35,7 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/api/v1/tiles/')) return event.respondWith(staleWhileRevalidate(req, TILES, MAX_TILES));
   if (/^\/api\/v1\/runs\/[0-9a-f-]{36}$/.test(url.pathname)) return event.respondWith(networkFirst(req, RUNS));
   if (url.pathname.startsWith('/api/')) return; // live data: network only
+  if (url.pathname.startsWith('/admin')) return; // private data: never saved on the device
   if (req.mode === 'navigate') return event.respondWith(page(req));
 });
 
