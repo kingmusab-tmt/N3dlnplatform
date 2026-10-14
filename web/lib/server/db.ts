@@ -18,7 +18,8 @@ export function getPool(): pg.Pool {
       ssl: sslFor(connectionString),
       max: Number(process.env.PG_POOL_MAX ?? 5),
       idleTimeoutMillis: 10_000,
-      connectionTimeoutMillis: 5_000,
+      // Scripts on slow links (e.g. imports) can raise this with PG_CONNECT_TIMEOUT_MS.
+      connectionTimeoutMillis: Number(process.env.PG_CONNECT_TIMEOUT_MS ?? 5_000),
     });
     pool.on('error', (err) => console.error('Unexpected idle Postgres client error', err));
     globalForPg.__nipostPool = pool;

@@ -3,12 +3,15 @@
 // their codes and only get their footprint/metadata refreshed.
 //
 //   npm run import:osm                       # Wuse 2, Abuja (default pilot)
+//   npm run import:osm -- --area lagos-island,lagos-yaba   # named areas (scripts/lib/areas.ts)
+//   npm run import:osm -- --area all         # every named area, one after another
 //   npm run import:osm -- --bbox 3.33,6.58,3.36,6.61 --state LA --lga 10
 //   npm run import:osm -- --dry-run          # fetch + allocate, write nothing
 // Reads DATABASE_URL from web/.env.local (see the npm script).
 import { parseArgs } from 'node:util';
 import { normalizePostcode } from '../lib/postcode';
 import { getPool } from '../lib/server/db';
+import { AREAS } from './lib/areas';
 import { allocateCodes, buildOverpassQuery, elementsToBuildings, type OverpassElement } from './lib/osm';
 
 const pool = getPool();
@@ -19,7 +22,7 @@ const pool = getPool();
 const DEFAULTS = { bbox: '7.462,9.068,7.492,9.088', state: 'FC', lga: '02', district: 'SIM' };
 const OVERPASS_URLS = process.env.OVERPASS_URL
   ? [process.env.OVERPASS_URL]
-  : ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
+  : ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
 const BATCH_SIZE = 500;
 
 const { values: args } = parseArgs({
@@ -28,18 +31,31 @@ const { values: args } = parseArgs({
     state: { type: 'string', default: DEFAULTS.state },
     lga: { type: 'string', default: DEFAULTS.lga },
     district: { type: 'string', default: DEFAULTS.district },
+    area: { type: 'string' },
     'dry-run': { type: 'boolean', default: false },
   },
 });
 
-const bbox = args.bbox.split(',').map(Number);
-if (bbox.length !== 4 || bbox.some((n) => !Number.isFinite(n))) {
-  throw new Error('--bbox must be minLng,minLat,maxLng,maxLat');
+type Job = { label: string; bbox: number[]; prefix: string };
+
+function job(label: string, bbox: number[], state: string, lga: string): Job {
+  if (bbox.length !== 4 || bbox.some((n) => !Number.isFinite(n))) {
+    throw new Error('--bbox must be minLng,minLat,maxLng,maxLat');
+  }
+  const prefix = `${state}${lga}${args.district}`.toUpperCase();
+  if (!normalizePostcode(`${prefix}AA01`)) {
+    throw new Error(`state/LGA/district don't form a valid NIPOST prefix: ${prefix}`);
+  }
+  return { label, bbox, prefix };
 }
-const prefix = `${args.state}${args.lga}${args.district}`.toUpperCase();
-if (!normalizePostcode(`${prefix}AA01`)) {
-  throw new Error(`--state/--lga/--district don't form a valid NIPOST prefix: ${prefix}`);
-}
+
+const jobs: Job[] = args.area
+  ? (args.area === 'all' ? Object.keys(AREAS) : args.area.split(',')).map((id) => {
+      const area = AREAS[id.trim()];
+      if (!area) throw new Error(`Unknown area "${id}". Known: ${Object.keys(AREAS).join(', ')}`);
+      return job(area.label, area.bbox, area.state, area.lga);
+    })
+  : [job('Custom area', args.bbox.split(',').map(Number), args.state, args.lga)];
 
 // Fixes self-intersections with ST_MakeValid, keeping the result only if it is still one polygon.
 const UPSERT_SQL = `
@@ -64,7 +80,7 @@ const UPSERT_SQL = `
 
 // Public Overpass servers are shared and often answer 429/504 under load, so
 // retry with backoff and alternate between the main server and a mirror.
-async function fetchOverpass(attempts = 4): Promise<OverpassElement[]> {
+async function fetchOverpass(bbox: number[], attempts = 6): Promise<OverpassElement[]> {
   console.log(`Fetching OSM buildings in [${bbox.join(', ')}] from Overpass…`);
   for (let attempt = 1; ; attempt++) {
     const url = OVERPASS_URLS[(attempt - 1) % OVERPASS_URLS.length];
@@ -72,8 +88,8 @@ async function fetchOverpass(attempts = 4): Promise<OverpassElement[]> {
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'tmtecheasy-delivery-mvp/0.1' },
-        body: new URLSearchParams({ data: buildOverpassQuery(bbox) }),
-        signal: AbortSignal.timeout(200_000),
+        body: new URLSearchParams({ data: buildOverpassQuery(bbox, 300) }),
+        signal: AbortSignal.timeout(320_000),
       });
       if (res.ok) return (await res.json()).elements ?? [];
       const retryable = res.status === 429 || res.status >= 500;
@@ -90,14 +106,40 @@ async function fetchOverpass(attempts = 4): Promise<OverpassElement[]> {
   }
 }
 
+/**
+ * Retries a dropped database connection (common on long imports over the
+ * internet). Safe because each batch is one idempotent upsert statement.
+ */
+async function withRetry<T>(fn: () => Promise<T>, attempts = 6): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const code = (err as { code?: string }).code ?? '';
+      const transient = ['ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ECONNREFUSED', '57P01'].includes(code) || /Connection terminated/i.test((err as Error).message);
+      if (!transient || attempt >= attempts) throw err;
+      console.warn(`
+  database connection dropped (${code || 'terminated'}), retrying batch…`);
+      await new Promise((r) => setTimeout(r, 3000 * attempt));
+    }
+  }
+}
+
 async function main() {
-  const elements = await fetchOverpass();
+  for (const j of jobs) {
+    console.log(`
+=== ${j.label} (${j.prefix}) ===`);
+    await importArea(j);
+  }
+}
+
+async function importArea({ bbox, prefix }: Job) {
+  const elements = await fetchOverpass(bbox);
   const { buildings, skipped } = elementsToBuildings(elements);
   console.log(`Parsed ${buildings.length} building footprints (${skipped} unclosed ways skipped).`);
 
-  const { rows: existingRows } = await pool.query(
-    'SELECT osm_id, nipost_code FROM buildings WHERE osm_id IS NOT NULL OR nipost_code LIKE $1',
-    [`${prefix}%`],
+  const { rows: existingRows } = await withRetry(() =>
+    pool.query('SELECT osm_id, nipost_code FROM buildings WHERE osm_id IS NOT NULL OR nipost_code LIKE $1', [`${prefix}%`]),
   );
   const existing = new Map<unknown, string>(
     existingRows.filter((r) => r.osm_id).map((r) => [Number(r.osm_id), r.nipost_code]),
@@ -123,19 +165,19 @@ async function main() {
       geometry: { type: 'Polygon', coordinates: [b.ring] },
       metadata: b.metadata,
     }));
-    const { rows } = await pool.query(UPSERT_SQL, [JSON.stringify(batch)]);
+    const { rows } = await withRetry(() => pool.query(UPSERT_SQL, [JSON.stringify(batch)]));
     for (const r of rows) r.inserted ? inserted++ : updated++;
     process.stdout.write(`\r  written ${Math.min(i + BATCH_SIZE, allocated.length)}/${allocated.length}`);
   }
   const dropped = allocated.length - inserted - updated;
   console.log(`\nDone: ${inserted} inserted, ${updated} updated, ${dropped} dropped (invalid or degenerate geometry).`);
 
-  const { rows: samples } = await pool.query(
+  const { rows: samples } = await withRetry(() => pool.query(
     `SELECT nipost_code, metadata->>'name' AS name, metadata ? 'gate' AS has_gate
      FROM buildings WHERE nipost_code LIKE $1
      ORDER BY (metadata ? 'name') DESC, (metadata ? 'gate') DESC, nipost_code LIMIT 8`,
     [`${prefix}%`],
-  );
+  ));
   console.log('Sample codes to try:');
   for (const s of samples) console.log(`  ${s.nipost_code}  ${s.name ?? ''}${s.has_gate ? '  [gate]' : ''}`);
 }

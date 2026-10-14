@@ -23,7 +23,8 @@ Owner: **you** = needs your accounts or a decision · **dev** = code work.
 - [x] **Gates from My places, Lite map mode, and the phone map fixes.** *(done)*
 - [x] **Talk to emergency services:** not needed for the MVP; revisit when there are resources to pilot it. *(closed)*
 - [x] **Local languages:** not needed for the MVP; revisit before going to production. *(closed)*
-- [ ] **Coverage for all of Nigeria:** import every OpenStreetMap building in Nigeria, state by state (`npm run import:osm -- --bbox … --state … --lga …`), with codes per state and LGA. Plan for size: buildings take about 0.6 KB each, and OSM has many millions in Nigeria, so full coverage needs several GB. That's beyond Supabase's free 500 MB, so it needs a paid plan or a staged rollout (e.g. Osun first, for the Osogbo field test). *(dev; you choose the plan and order)*
+- [x] **Coverage: business cores of Abuja, Lagos, Kano and Onitsha** (~138,000 buildings, ~80–90 MB), with "Go to" city buttons on the map. *(done)*
+- [ ] **Wider coverage:** whole cities and more states (Ibadan ~500,000 buildings, Kaduna ~377,000, Enugu ~88,000; all of Lagos ~1.2 million). Beyond ~750,000 buildings in total this needs Supabase Pro (8 GB). Aba and Maiduguri have few buildings mapped in OpenStreetMap yet. *(you choose; dev imports)*
 - [ ] **Partner self-service:** request an API key, see usage, and count requests per key for billing. *(dev)*
 
 ## Accounts & admin

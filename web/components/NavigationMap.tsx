@@ -22,6 +22,7 @@ import {
   type LightPreset,
 } from '@/lib/map';
 import EmergencyLinks from '@/components/EmergencyLinks';
+import { PILOT_CITIES, type CityView } from '@/lib/pilotCities';
 import MapModeToggle from '@/components/MapModeToggle';
 import ShareButtons from '@/components/ShareButtons';
 import { resolveMapMode, type MapMode } from '@/lib/mapMode';
@@ -29,9 +30,9 @@ import { AUTH_ENABLED, useUser } from '@/lib/supabase/client';
 import type { User } from '@supabase/supabase-js';
 import { normalizePostcode, type Claim, type Gate, type NavigateResponse, type Verification } from '@/lib/postcode';
 
-// The map opens over all of Nigeria, then flies into Wuse 2, Abuja (the MVP pilot area).
+// The map opens over all of Nigeria, then flies into Wuse 2, Abuja (the first pilot area).
 const NIGERIA_VIEW = { center: [8.6753, 9.082] as [number, number], zoom: 5.3, pitch: 0, bearing: 0 };
-const PILOT_VIEW = { center: [7.4789, 9.0777] as [number, number], zoom: 15.8, pitch: 60, bearing: -28 };
+const PILOT_VIEW = PILOT_CITIES[0].view;
 
 type Status =
   | { kind: 'idle' }
@@ -283,6 +284,15 @@ export default function NavigationMap({ initialCode, editGateFor }: { initialCod
     if (map) map.getCanvas().style.cursor = '';
   }
 
+  /** Jump to one of the pilot cities (buildings are mapped there). */
+  async function flyToCity(view: CityView) {
+    const map = await mapReady.current;
+    if (!map) return;
+    stopOrbit.current();
+    const lite = mapModeOf(map) === 'lite';
+    map.flyTo({ ...view, ...(lite && { pitch: 0, bearing: 0 }), duration: 2500, essential: true });
+  }
+
   async function changeLight(preset: LightPreset) {
     setLight(preset);
     const map = await mapReady.current;
@@ -350,6 +360,22 @@ export default function NavigationMap({ initialCode, editGateFor }: { initialCod
           <p className="mt-2 rounded-lg bg-slate-900/85 px-3 py-2 text-sm text-slate-400 backdrop-blur">
             Search a postcode, or click any building on the map to see its code.
           </p>
+        )}
+        {(status.kind === 'idle' || status.kind === 'error') && !gateEdit && (
+          <div role="group" aria-label="Go to a city" className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="rounded-md bg-slate-900/85 px-2 py-1 text-slate-400 backdrop-blur">Go to</span>
+            {PILOT_CITIES.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => void flyToCity(c.view)}
+                title={c.areas}
+                className="rounded-md border border-white/10 bg-slate-900/85 px-2.5 py-1 font-medium text-slate-200 backdrop-blur hover:border-[#39FF14]/50 hover:text-white"
+              >
+                {c.name}
+              </button>
+            ))}
+          </div>
         )}
 
         {gateEdit && (

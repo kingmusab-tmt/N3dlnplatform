@@ -39,9 +39,22 @@ cd web && cp .env.example .env.local && npm install && npm run dev
 ```bash
 cd web
 npm run import:osm                  # Wuse 2, Abuja (default pilot area)
+npm run import:osm -- --area all    # every pilot area in scripts/lib/areas.ts
+npm run import:osm -- --area lagos-yaba,kano-fagge
 npm run import:osm -- --dry-run     # fetch and assign codes without writing
 npm run import:osm -- --bbox minLng,minLat,maxLng,maxLat --state LA --lga 10
 ```
+
+**Pilot areas** (`scripts/lib/areas.ts`), the business and commercial cores of four cities, about 138,000 buildings (~80–90 MB):
+
+| City | Areas | Code prefix |
+|---|---|---|
+| Abuja | Central Area, Garki, Wuse, Wuse 2, Maitama, Asokoro, Utako | `FC 02 SIM` (Abuja Municipal) |
+| Lagos | Lagos Island · Ikoyi and Victoria Island · Yaba · Ikeja business district | `LA 14` · `LA 08` · `LA 15` · `LA 11` `SIM` |
+| Kano | Kurmi market and old city · Kantin Kwari, Sabon Gari · Bompai, Nassarawa | `KN 21` · `KN 12` · `KN 31` `SIM` |
+| Onitsha | Main Market · Upper Iweka | `AN 17` · `AN 18` `SIM` |
+
+Each box takes the code of its dominant LGA, so buildings near an LGA border may carry the neighbour's code; the codes are simulated anyway. Supabase's free plan (500 MB) fits roughly 750,000 buildings at ~0.6 KB each, including indexes.
 
 This pulls every building footprint in the box from OpenStreetMap through Overpass and assigns each one a **simulated** code: `<state><lga>SIM<area><unit>`. The state and LGA codes are NIPOST's real codes (`FC` 02 = Abuja Municipal). The district is always `SIM`, which is valid NIPOST syntax but never a real district, so simulated codes can't collide with real addresses. Codes are assigned in a north-west to south-east sweep, so neighbouring buildings share an area code.
 

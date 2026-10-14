@@ -3,6 +3,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import PostcodeTry from '@/components/landing/PostcodeTry';
 import SiteFooter from '@/components/SiteFooter';
+import { PILOT_CITIES } from '@/lib/pilotCities';
 import { EMERGENCY_NUMBER } from '@/lib/purpose';
 import { getDeps } from '@/lib/server/deps';
 import { getLandingStats } from '@/lib/server/stats';
@@ -466,12 +467,21 @@ export default async function LandingPage() {
           <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
             <div className="grid gap-8 lg:grid-cols-3 lg:items-center">
               <div className="lg:col-span-2">
-                <h2 className="text-3xl font-bold text-white">Now piloting in Wuse 2, Abuja</h2>
+                <h2 className="text-3xl font-bold text-white">Now piloting in Abuja, Lagos, Kano and Onitsha</h2>
                 <p className="mt-4 text-slate-300">
-                  The pilot maps every building in Wuse 2 from OpenStreetMap. Until NIPOST’s full postcode data is connected,
-                  pilot buildings carry <span className="font-medium text-white">simulated codes</span> in district “SIM”, so they can
-                  never be confused with a real address. More areas follow as coverage grows.
+                  The pilot maps every building in the business and commercial core of four cities, from OpenStreetMap. Until
+                  NIPOST’s full postcode data is connected, pilot buildings carry{' '}
+                  <span className="font-medium text-white">simulated codes</span> in district “SIM”, so they can never be confused
+                  with a real address. More areas follow as coverage grows.
                 </p>
+                <ul className="mt-5 grid gap-2 text-sm sm:grid-cols-2">
+                  {PILOT_CITIES.map((c) => (
+                    <li key={c.id} className="rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2">
+                      <span className="font-semibold text-white">{c.name}</span>
+                      <span className="block text-slate-400">{c.areas}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <Stat value={buildingCount} label="buildings mapped" />
@@ -483,7 +493,7 @@ export default async function LandingPage() {
             <div className="mt-12 flex flex-col items-start gap-4 rounded-2xl border border-[#39FF14]/30 bg-[#39FF14]/5 p-8 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h3 className="text-2xl font-bold text-white">See your street in 3D</h3>
-                <p className="mt-1 text-slate-300">Search a postcode, or tap any building in Wuse 2 to find its code.</p>
+                <p className="mt-1 text-slate-300">Search a postcode, or tap any building in the pilot cities to find its code.</p>
               </div>
               <Link href="/map" className="rounded-lg bg-[#39FF14] px-6 py-3 font-semibold text-slate-950 hover:brightness-110">
                 Open the map
