@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import SiteFooter from '@/components/SiteFooter';
+import { CONTACT, ORG } from '@/lib/site';
 
 export const metadata: Metadata = {
   title: 'Privacy notice · TMTechEasy Gate',
@@ -7,8 +9,6 @@ export const metadata: Metadata = {
 };
 
 const UPDATED = '11 October 2026';
-// Set PRIVACY_CONTACT_EMAIL in the deployment to publish a contact address.
-const CONTACT = process.env.PRIVACY_CONTACT_EMAIL || null;
 
 const SECTIONS = [
   ['who', 'Who we are'],
@@ -61,7 +61,7 @@ export default function PrivacyPage() {
         <div className="mt-8 space-y-10">
           <Section id="who" title="Who we are">
             <p>
-              TMTechEasy Gate is a minimum viable product (MVP) built by <strong>Triple Multipurpose Technology</strong>, which
+              TMTechEasy Gate is a minimum viable product (MVP), an idea by <strong>{ORG.name}</strong> ({ORG.websiteLabel}), which
               decides how and why the personal data described here is used (the “data controller” under the Nigeria Data
               Protection Act 2023, “NDPA”). It turns Nigerian digital postcodes into buildings on a 3D map, with directions to
               the right gate for delivery riders and emergency responders.
@@ -309,23 +309,21 @@ export default function PrivacyPage() {
               shown on the website.
             </p>
             <p>
-              Questions or requests about your data:{' '}
-              {CONTACT ? (
-                <a href={`mailto:${CONTACT}`}>{CONTACT}</a>
-              ) : (
-                <>contact Triple Multipurpose Technology, the team behind TMTechEasy Gate</>
-              )}
-              .
+              Questions or requests about your data: {ORG.name},{' '}
+              <a href={`mailto:${CONTACT.support}`}>{CONTACT.support}</a>, or call{' '}
+              {CONTACT.phones.map((phone, i) => (
+                <span key={phone.e164}>
+                  {i > 0 && ' or '}
+                  <a href={`tel:${phone.e164}`}>{phone.display}</a>
+                </span>
+              ))}
+              . Website: <a href={ORG.website}>{ORG.websiteLabel}</a>.
             </p>
           </Section>
         </div>
       </main>
 
-      <footer className="border-t border-white/5">
-        <div className="mx-auto max-w-3xl px-4 py-6 text-xs text-slate-500 sm:px-6">
-          © Triple Multipurpose Technology · <Link href="/" className="underline hover:text-slate-300">Home</Link>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }

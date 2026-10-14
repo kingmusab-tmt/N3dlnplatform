@@ -11,7 +11,7 @@ Owner: **you** = needs your accounts or a decision · **dev** = code work.
 - [x] **CAPTCHA on sign-in** (Cloudflare Turnstile through Supabase): built and on locally with Cloudflare's test keys. *(done in code)*
 - [ ] **Turn CAPTCHA on in production:** create a free Turnstile widget at dash.cloudflare.com (hostname `n3dlnplatform.vercel.app`). Put its site key in Vercel as `NEXT_PUBLIC_TURNSTILE_SITE_KEY` and redeploy **first**; then put the secret key in Supabase → Authentication → Attack Protection → Turnstile. The other order blocks every sign-in. *(you; dev can do the Supabase step)*
 - [x] **Privacy notice** (`/privacy`), linked from the footer, sign-in and My places, plus **Delete my account** in My places. *(done)*
-- [ ] **Privacy contact address:** set `PRIVACY_CONTACT_EMAIL` in Vercel to the address people should write to about their data (shown on the privacy notice). *(you)*
+- [x] **Footer, contact details and credits:** "IDEA by Triple Multipurpose Technology", CEO, emails and phone numbers on every page footer and in the privacy notice; `/credits` lists all attributions and licences. *(done)*
 
 ## Product
 

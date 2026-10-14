@@ -51,3 +51,22 @@ test('a user can delete their own account', async ({ page }) => {
   await expect(page).toHaveURL(/\/\?account=deleted$/);
   expect(await userExists(email)).toBe(false);
 });
+
+test('the footer credits the company with contact details, and the credits page lists attributions', async ({ page }) => {
+  await page.goto('/');
+  const footer = page.locator('footer');
+  await expect(footer.getByText('IDEA by')).toBeVisible();
+  await expect(footer.getByRole('link', { name: 'Triple Multipurpose Technology' })).toHaveAttribute('href', 'https://triplemultipurposetechnology.com.ng');
+  await expect(footer.getByText('CEO: Engr. Musab Mubaraq Mburaimoh')).toBeVisible();
+  await expect(footer.getByRole('link', { name: 'support@triplemultipurposetechnology.com.ng' })).toHaveAttribute('href', 'mailto:support@triplemultipurposetechnology.com.ng');
+  await expect(footer.getByRole('link', { name: '+234 816 255 2901' })).toHaveAttribute('href', 'tel:+2348162552901');
+  await expect(footer.getByRole('link', { name: '+234 904 937 6773' })).toHaveAttribute('href', 'tel:+2349049376773');
+  await expect(footer.getByRole('link', { name: 'OpenStreetMap contributors' })).toHaveAttribute('href', 'https://www.openstreetmap.org/copyright');
+
+  await footer.getByRole('link', { name: 'Credits & attributions' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Credits & attributions' })).toBeVisible();
+  for (const name of ['OpenStreetMap contributors', 'Mapbox', 'NIPOST: National Digital Postcode system', 'Next.js', 'PostGIS']) {
+    await expect(page.locator('main').getByRole('link', { name, exact: true })).toBeVisible();
+  }
+  await expect(page.getByText('Open Database License (ODbL) 1.0')).toBeVisible();
+});

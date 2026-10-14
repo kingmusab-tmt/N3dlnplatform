@@ -3,6 +3,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const CI = !!process.env.CI;
+// Another local app may already use 3000: `PORT=3001 npm run test:e2e`.
+const PORT = Number(process.env.PORT || 3000);
 
 export default defineConfig({
   testDir: './e2e',
@@ -15,7 +17,7 @@ export default defineConfig({
   expect: { timeout: 20_000 },
   reporter: CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: `http://localhost:${PORT}`,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     launchOptions: {
@@ -28,8 +30,8 @@ export default defineConfig({
   ],
   webServer: {
     // CI tests the production build; locally an already-running `npm run dev` is reused.
-    command: CI ? 'npm run start' : 'npm run dev',
-    url: 'http://localhost:3000/api/v1/health',
+    command: CI ? `npm run start -- -p ${PORT}` : `npm run dev -- -p ${PORT}`,
+    url: `http://localhost:${PORT}/api/v1/health`,
     reuseExistingServer: !CI,
     timeout: 180_000,
   },

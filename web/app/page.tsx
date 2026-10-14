@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import PostcodeTry from '@/components/landing/PostcodeTry';
+import SiteFooter from '@/components/SiteFooter';
 import { EMERGENCY_NUMBER } from '@/lib/purpose';
 import { getDeps } from '@/lib/server/deps';
 import { getLandingStats } from '@/lib/server/stats';
@@ -492,39 +493,7 @@ export default async function LandingPage() {
         </section>
       </main>
 
-      {/* ---- Footer ---- */}
-      <footer className="border-t border-white/5">
-        <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 text-sm text-slate-500 sm:px-6 md:flex-row md:justify-between">
-          <div className="max-w-md">
-            <p className="flex items-center gap-2 font-semibold text-slate-300">
-              <span aria-hidden className="h-2.5 w-2.5 rounded-sm bg-[#39FF14]" />
-              TMTechEasy Gate
-            </p>
-            <p className="mt-2">
-              An independent platform built on Nigeria’s National Digital Postcode system. It is not operated by or
-              affiliated with NIPOST. Pilot postcodes are simulated; claims are submitted by users and are unverified.
-            </p>
-            <p className="mt-2">Map data © Mapbox © OpenStreetMap contributors.</p>
-            <p className="mt-4 text-slate-400">
-              MVP by <span className="font-medium text-slate-200">Triple Multipurpose Technology</span>
-              <br />
-              CEO: Engr. Musab Mubaraq Mburaimoh
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-x-10 gap-y-2">
-            <Link href="/map" className="hover:text-slate-300">3D map</Link>
-            <Link href="/rider" className="hover:text-slate-300">Navigator</Link>
-            <Link href="/rider?for=ambulance" className="hover:text-slate-300">Emergency navigator</Link>
-            <Link href="/account" className="hover:text-slate-300">My places</Link>
-            <Link href="/login" className="hover:text-slate-300">Sign in</Link>
-            <Link href="/api/v1/docs" className="hover:text-slate-300">API docs</Link>
-            <Link href="/privacy" className="hover:text-slate-300">Privacy notice</Link>
-            <a href="https://docs.postcode.gov.ng" className="hover:text-slate-300" rel="noopener noreferrer" target="_blank">
-              NIPOST postcode docs
-            </a>
-          </div>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }
